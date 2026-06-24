@@ -55,6 +55,23 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = "Set"
 	case parser.IfNode:
 		displayName = "If"
+		// Tampilkan condition jika ada
+		if len(node.Children) > 0 {
+			sb.WriteString(fmt.Sprintf("%s%s [line: %d, col: %d]\n", indent, displayName, node.Line, node.Column))
+			// Print condition
+			cond := node.Children[0]
+			sb.WriteString(p.printNode(cond, level+1))
+			// Print then block
+			if len(node.Children) > 1 {
+				sb.WriteString(p.printNode(node.Children[1], level+1))
+			}
+			// Print else block if exists
+			if len(node.Children) > 2 {
+				sb.WriteString(p.printNode(node.Children[2], level+1))
+			}
+			return sb.String()
+		}
+
 	case parser.BlockNode:
 		switch node.Token {
 		case "condition":
@@ -76,6 +93,7 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		} else {
 			displayName = "Comparison"
 		}
+
 	case parser.FieldReferenceNode:
 		if node.Value != nil {
 			if path, ok := node.Value.(string); ok {
@@ -86,12 +104,14 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		} else {
 			displayName = "FieldReference"
 		}
+
 	case parser.IdentifierNode:
 		if name, ok := node.Value.(string); ok && name != "" && name != "error" {
 			displayName = fmt.Sprintf("Identifier: %s", name)
 		} else {
 			displayName = fmt.Sprintf("Identifier: %s", node.Token)
 		}
+
 	case parser.LiteralNode:
 		if valStr, ok := node.Value.(string); ok {
 			displayName = fmt.Sprintf("Literal: '%s'", valStr)
@@ -100,11 +120,18 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		} else {
 			displayName = "Literal"
 		}
+
+	case parser.CastNode:
+		displayName = "Cast"
+	case parser.CaseNode:
+		displayName = "Case"
+	case parser.WhenNode:
+		displayName = "When"
+
 	}
 
 	sb.WriteString(fmt.Sprintf("%s%s [line: %d, col: %d]\n", indent, displayName, node.Line, node.Column))
 
-	// Print children
 	for _, child := range node.Children {
 		sb.WriteString(p.printNode(child, level+1))
 	}

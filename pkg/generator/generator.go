@@ -73,6 +73,15 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 	case parser.ComparisonNode, parser.BinaryOpNode:
 		return g.generateBinaryOp(node, level)
 
+	case parser.CastNode:
+		return g.generateCast(node, level)
+
+	case parser.CaseNode:
+		return g.generateCase(node, level)
+
+	case parser.WhenNode:
+		return g.generateWhen(node, false)
+
 	default:
 		var sb strings.Builder
 		if node.Token != "" {
@@ -167,20 +176,28 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 
 	sb.WriteString(indentStr + "IF ")
 
-	for _, child := range node.Children {
-		if child.Type == parser.BlockNode && child.Token == "condition" && len(child.Children) > 0 {
-			sb.WriteString(g.generateNode(child.Children[0], 0))
-			break
-		}
+	// Generate condition (child 0)
+	if len(node.Children) > 0 {
+		cond := node.Children[0]
+		sb.WriteString(g.generateNode(cond, 0))
 	}
 
 	sb.WriteString(" THEN\n")
 
-	for _, child := range node.Children {
-		if child.Type == parser.BlockNode && child.Token == "then" {
-			for _, stmt := range child.Children {
-				sb.WriteString(g.generateNode(stmt, level+1))
-			}
+	// Generate then block (child 1)
+	if len(node.Children) > 1 {
+		thenBlock := node.Children[1]
+		for _, stmt := range thenBlock.Children {
+			sb.WriteString(g.generateNode(stmt, level+1))
+		}
+	}
+
+	// Generate else block if exists (child 2)
+	if len(node.Children) > 2 {
+		elseBlock := node.Children[2]
+		sb.WriteString(indentStr + "ELSE\n")
+		for _, stmt := range elseBlock.Children {
+			sb.WriteString(g.generateNode(stmt, level+1))
 		}
 	}
 
@@ -190,6 +207,14 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 
 func (g *Generator) generateBlock(node parser.ASTNode, level int) string {
 	var sb strings.Builder
+
+	// Untuk BlockNode dengan token "else" di CASE expression
+	if node.Token == "else" && len(node.Children) > 0 {
+		sb.WriteString("ELSE " + g.generateNode(node.Children[0], 0))
+		return sb.String()
+	}
+
+	// Untuk BlockNode biasa (then, target, value, condition)
 	for _, child := range node.Children {
 		sb.WriteString(g.generateNode(child, level))
 	}
@@ -216,4 +241,82 @@ func (g *Generator) generateBinaryOp(node parser.ASTNode, level int) string {
 	left := g.generateNode(node.Children[0], 0)
 	right := g.generateNode(node.Children[1], 0)
 	return left + " " + node.Token + " " + right
+}
+
+func (g *Generator) generateCast(node parser.ASTNode, level int) string {
+	var sb strings.Builder
+
+	sb.WriteString("CAST(")
+
+	// Generate expression
+	if len(node.Children) > 0 {
+		sb.WriteString(g.generateNode(node.Children[0], 0))
+	}
+
+	sb.WriteString(" AS ")
+
+	// Generate type
+	if len(node.Children) > 1 {
+		sb.WriteString(g.generateNode(node.Children[1], 0))
+	}
+
+	sb.WriteString(")")
+
+	return sb.String()
+}
+
+func (g *Generator) generateCase(node parser.ASTNode, level int) string {
+	var sb strings.Builder
+
+	sb.WriteString("CASE")
+
+	// Cek apakah ini simple CASE (child 0 adalah expression, bukan WHEN)
+	if len(node.Children) > 0 && node.Children[0].Type != parser.WhenNode {
+		// Simple CASE: CASE expression
+		sb.WriteString(" " + g.generateNode(node.Children[0], 0))
+
+		// Generate WHEN clauses (mulai dari index 1)
+		for i := 1; i < len(node.Children); i++ {
+			child := node.Children[i]
+			if child.Type == parser.WhenNode {
+				sb.WriteString(" " + g.generateWhen(child, true))
+			} else if child.Type == parser.BlockNode && child.Token == "else" {
+				sb.WriteString(" " + g.generateNode(child, 0))
+			}
+		}
+	} else {
+		// Searched CASE: CASE WHEN condition THEN result ...
+		for _, child := range node.Children {
+			if child.Type == parser.WhenNode {
+				sb.WriteString(" " + g.generateWhen(child, false))
+			} else if child.Type == parser.BlockNode && child.Token == "else" {
+				sb.WriteString(" " + g.generateNode(child, 0))
+			}
+		}
+	}
+
+	sb.WriteString(" END")
+	return sb.String()
+}
+
+func (g *Generator) generateWhen(node parser.ASTNode, isSimpleCase bool) string {
+	var sb strings.Builder
+
+	sb.WriteString("WHEN ")
+
+	if len(node.Children) >= 2 {
+		if isSimpleCase {
+			// Simple CASE: WHEN value THEN result
+			sb.WriteString(g.generateNode(node.Children[0], 0))
+			sb.WriteString(" THEN ")
+			sb.WriteString(g.generateNode(node.Children[1], 0))
+		} else {
+			// Searched CASE: WHEN condition THEN result
+			sb.WriteString(g.generateNode(node.Children[0], 0))
+			sb.WriteString(" THEN ")
+			sb.WriteString(g.generateNode(node.Children[1], 0))
+		}
+	}
+
+	return sb.String()
 }

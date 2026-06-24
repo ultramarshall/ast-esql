@@ -141,6 +141,23 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				}
 			}
 		}
+	case parser.CastNode:
+		// Cast doesn't define variables, just analyze children
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+
+	case parser.CaseNode:
+		// Analyze semua children (WHEN clauses dan ELSE)
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+	case parser.WhenNode:
+		// Analyze condition dan result
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+
 	}
 
 	for _, child := range node.Children {

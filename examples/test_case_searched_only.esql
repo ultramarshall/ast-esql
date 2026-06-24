@@ -1,0 +1,11 @@
+CREATE COMPUTE MODULE TestCaseSearched
+    DECLARE score INTEGER;
+    DECLARE status STRING;
+    SET score = 85;
+    SET status = CASE 
+        WHEN score >= 90 THEN 'Excellent'
+        WHEN score >= 80 THEN 'Good'
+        WHEN score >= 70 THEN 'Average'
+        ELSE 'Poor'
+    END;
+END MODULE;

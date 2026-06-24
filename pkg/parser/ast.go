@@ -45,6 +45,7 @@ const (
 	ArrayIndexNode     NodeType = "ArrayIndex"
 	LiteralNode        NodeType = "Literal"
 	IdentifierNode     NodeType = "Identifier"
+	CastNode           NodeType = "Cast"
 )
 
 type ASTNode struct {

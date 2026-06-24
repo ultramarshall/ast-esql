@@ -7,6 +7,14 @@ import (
 	"esql-ast-tool/internal/token"
 )
 
+var DebugMode = false
+
+func debugPrint(format string, args ...interface{}) {
+	if DebugMode {
+		fmt.Printf(format, args...)
+	}
+}
+
 type Parser struct {
 	l         *Lexer
 	tokens    []token.Token
@@ -127,10 +135,6 @@ func (p *Parser) ParseProgram() Program {
 }
 
 func (p *Parser) parseStatement() ASTNode {
-	// Debug - matikan setelah selesai debugging
-	// fmt.Printf("DEBUG parseStatement: token=%s, literal='%s', line=%d\n",
-	//     p.curToken.Type, p.curToken.Literal, p.curToken.Line)
-
 	switch p.curToken.Type {
 	case token.CREATE:
 		return p.parseCreate()
@@ -449,29 +453,30 @@ func (p *Parser) parseDeclare() ASTNode {
 }
 
 func (p *Parser) parseSet() ASTNode {
-	// Debug
-	// fmt.Printf("DEBUG parseSet: token=%s, literal='%s', line=%d\n",
-	//     p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+	debugPrint("  [parseSet] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	node := NewASTNode(SetNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume SET
 
-	// Parse target - ini bisa identifier atau field reference
-	target := p.parseExpression()
+	// Parse target - langsung parse identifier atau field reference
+	var target ASTNode
+	if p.curToken.Type == token.IDENTIFIER {
+		target = p.parseIdentifier()
+	} else {
+		// Fallback: parse expression tapi hati-hati
+		target = p.parseExpression()
+	}
+
 	if target.Type != "" {
 		targetWrapper := NewASTNode(BlockNode, "target", target.Line, target.Column)
 		targetWrapper.AddChild(target)
 		node.AddChild(targetWrapper)
 	}
 
-	// Debug
-	// fmt.Printf("DEBUG parseSet: after target, token=%s, literal='%s'\n",
-	//     p.curToken.Type, p.curToken.Literal)
-
-	// Cek ASSIGN
-	if p.curToken.Type == token.ASSIGN {
-		// fmt.Println("DEBUG parseSet: found ASSIGN")
-		p.nextToken()
+	// Cek '='
+	if p.curToken.Type == token.ASSIGN || p.curToken.Type == token.EQ {
+		p.nextToken() // consume '='
 		value := p.parseExpression()
 		if value.Type != "" {
 			valueWrapper := NewASTNode(BlockNode, "value", value.Line, value.Column)
@@ -482,6 +487,8 @@ func (p *Parser) parseSet() ASTNode {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected '=' in SET statement, got %s '%s' at line %d",
 				p.curToken.Type, p.curToken.Literal, p.curToken.Line))
+		// Safety: consume token untuk prevent loop
+		p.nextToken()
 	}
 
 	// Consume semicolon
@@ -489,25 +496,47 @@ func (p *Parser) parseSet() ASTNode {
 		p.nextToken()
 	}
 
+	debugPrint("  [parseSet] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	return node
 }
 
 func (p *Parser) parseIf() ASTNode {
+	debugPrint("[parseIf] START: token=%s, literal='%s', line=%d\n",
+		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+
 	node := NewASTNode(IfNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume IF
+
+	debugPrint("[parseIf] after IF: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	// Parse condition
 	cond := p.parseExpression()
 	if cond.Type != "" {
-		condWrapper := NewASTNode(BlockNode, "condition", cond.Line, cond.Column)
-		condWrapper.AddChild(cond)
-		node.AddChild(condWrapper)
+		debugPrint("[parseIf] condition parsed: type=%s\n", cond.Type)
+		node.AddChild(cond)
 	}
+
+	debugPrint("[parseIf] after condition: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	// Expect THEN
 	if p.curToken.Type == token.THEN {
+		debugPrint("[parseIf] Found THEN, consuming it\n")
+		p.nextToken() // consume THEN
+	} else {
+		debugPrint("[parseIf] ERROR: expected THEN, got %s\n", p.curToken.Type)
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected THEN after IF condition, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
 		p.nextToken()
+		return node
 	}
+
+	debugPrint("[parseIf] after THEN: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	// Parse THEN block
 	thenBlock := NewASTNode(BlockNode, "then", p.curToken.Line, p.curToken.Column)
@@ -525,6 +554,7 @@ func (p *Parser) parseIf() ASTNode {
 
 	// Parse ELSE if ada
 	if p.curToken.Type == token.ELSE {
+		debugPrint("[parseIf] Found ELSE\n")
 		p.nextToken()
 		elseBlock := NewASTNode(BlockNode, "else", p.curToken.Line, p.curToken.Column)
 		for p.curToken.Type != token.END && p.curToken.Type != token.EOF {
@@ -541,16 +571,20 @@ func (p *Parser) parseIf() ASTNode {
 
 	// Konsumsi END IF
 	if p.curToken.Type == token.END {
+		debugPrint("[parseIf] Found END\n")
 		p.nextToken()
 		if p.curToken.Type == token.IF {
+			debugPrint("[parseIf] Found IF after END\n")
 			p.nextToken()
 		}
 	}
 
-	// Optional semicolon
 	if p.curToken.Type == token.SEMICOLON {
 		p.nextToken()
 	}
+
+	debugPrint("[parseIf] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	return node
 }
@@ -829,11 +863,39 @@ func (p *Parser) parseExpressionStatement() ASTNode {
 	return expr
 }
 
+// pkg/parser/parser.go
+
 func (p *Parser) parseExpression() ASTNode {
-	return p.parseLogicalOr()
+	debugPrint("  [parseExpression] token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Parse left side using standard precedence
+	left := p.parseLogicalOr()
+
+	// Check untuk comparison operators
+	if p.curToken.Type == token.EQ || p.curToken.Type == token.ASSIGN ||
+		p.curToken.Type == token.NOT_EQ ||
+		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
+		p.curToken.Type == token.LTE || p.curToken.Type == token.GTE {
+		debugPrint("  [parseExpression] FOUND OPERATOR: %s\n", p.curToken.Literal)
+		tok := p.curToken
+		p.nextToken()
+		right := p.parseAdditive()
+		if right.Type != "" {
+			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
+			compNode.AddChild(left)
+			compNode.AddChild(right)
+			debugPrint("  [parseExpression] returning comparison node\n")
+			return compNode
+		}
+	}
+
+	return left
 }
 
 func (p *Parser) parseLogicalOr() ASTNode {
+	debugPrint("    [parseLogicalOr] token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 	node := p.parseLogicalAnd()
 
 	for p.curToken.Type == token.OR {
@@ -852,7 +914,9 @@ func (p *Parser) parseLogicalOr() ASTNode {
 }
 
 func (p *Parser) parseLogicalAnd() ASTNode {
-	node := p.parseComparison()
+	debugPrint("    [parseLogicalAnd] token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+	node := p.parseComparison() // <-- Ini yang handle >, <, ==, dll
 
 	for p.curToken.Type == token.AND {
 		tok := p.curToken
@@ -870,13 +934,45 @@ func (p *Parser) parseLogicalAnd() ASTNode {
 }
 
 func (p *Parser) parseComparison() ASTNode {
+	debugPrint("    [parseComparison] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	node := p.parseAdditive()
+
+	debugPrint("    [parseComparison] after parseAdditive: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	if p.curToken.Type == token.EQ || p.curToken.Type == token.NOT_EQ ||
 		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
 		p.curToken.Type == token.LTE || p.curToken.Type == token.GTE {
+		debugPrint("    [parseComparison] found operator: %s\n", p.curToken.Literal)
 		tok := p.curToken
 		p.nextToken()
+		right := p.parseAdditive()
+		if right.Type != "" {
+			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
+			compNode.AddChild(node)
+			compNode.AddChild(right)
+			debugPrint("    [parseComparison] returning comparison node\n")
+			return compNode
+		}
+	}
+
+	debugPrint("    [parseComparison] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	return node
+}
+
+func (p *Parser) parseComparisonFromNode(left ASTNode) ASTNode {
+	node := left
+
+	// Cek operator comparison
+	if p.curToken.Type == token.EQ || p.curToken.Type == token.NOT_EQ ||
+		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
+		p.curToken.Type == token.LTE || p.curToken.Type == token.GTE {
+		tok := p.curToken
+		p.nextToken() // consume operator
 		right := p.parseAdditive()
 		if right.Type != "" {
 			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
@@ -890,6 +986,9 @@ func (p *Parser) parseComparison() ASTNode {
 }
 
 func (p *Parser) parseAdditive() ASTNode {
+	debugPrint("    [parseAdditive] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	node := p.parseMultiplicative()
 
 	for p.curToken.Type == token.PLUS || p.curToken.Type == token.MINUS {
@@ -902,10 +1001,16 @@ func (p *Parser) parseAdditive() ASTNode {
 		node = binOp
 	}
 
+	debugPrint("    [parseAdditive] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	return node
 }
 
 func (p *Parser) parseMultiplicative() ASTNode {
+	debugPrint("    [parseMultiplicative] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	node := p.parseUnary()
 
 	for p.curToken.Type == token.ASTERISK || p.curToken.Type == token.SLASH ||
@@ -919,43 +1024,84 @@ func (p *Parser) parseMultiplicative() ASTNode {
 		node = binOp
 	}
 
+	debugPrint("    [parseMultiplicative] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	return node
 }
 
 func (p *Parser) parseUnary() ASTNode {
+	debugPrint("    [parseUnary] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	if p.curToken.Type == token.MINUS || p.curToken.Type == token.NOT {
 		tok := p.curToken
 		p.nextToken()
 		operand := p.parsePrimary()
 		unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
 		unaryNode.AddChild(operand)
+		debugPrint("    [parseUnary] END (unary): token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
 		return unaryNode
 	}
 
-	return p.parsePrimary()
+	result := p.parsePrimary()
+	debugPrint("    [parseUnary] END (primary): token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+	return result
 }
 
 func (p *Parser) parsePrimary() ASTNode {
+	debugPrint("    [parsePrimary] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	switch p.curToken.Type {
 	case token.IDENTIFIER:
-		return p.parseIdentifier()
+		result := p.parseIdentifier()
+		debugPrint("    [parsePrimary] after IDENTIFIER: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
 	case token.NUMBER:
-		return p.parseNumber()
+		result := p.parseNumber()
+		debugPrint("    [parsePrimary] after NUMBER: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
 	case token.STRING:
-		return p.parseString()
+		result := p.parseString()
+		debugPrint("    [parsePrimary] after STRING: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
 	case token.LPAREN:
-		return p.parseGroupedExpression()
+		result := p.parseGroupedExpression()
+		debugPrint("    [parsePrimary] after LPAREN: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
+	case token.CASE:
+		// CASE expression sebagai primary
+		result := p.parseCase()
+		debugPrint("    [parsePrimary] after CASE: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
+	case token.CAST:
+		// CAST expression sebagai primary
+		result := p.parseCast()
+		debugPrint("    [parsePrimary] after CAST: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
 	default:
-		// Jika token tidak dikenal, jangan buat node error
-		// Biarkan parser melanjutkan
+		debugPrint("    [parsePrimary] UNKNOWN: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
 		return ASTNode{}
 	}
 }
 
 func (p *Parser) parseIdentifier() ASTNode {
+	debugPrint("      [parseIdentifier] token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
 	node := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
 	node.Value = p.curToken.Literal
-	p.nextToken()
+	p.nextToken() // <-- Ini consume token IDENTIFIER
 
 	// Function call
 	if p.curToken.Type == token.LPAREN {
@@ -966,6 +1112,9 @@ func (p *Parser) parseIdentifier() ASTNode {
 	if p.curToken.Type == token.DOT {
 		return p.parseFieldReference(node)
 	}
+
+	debugPrint("      [parseIdentifier] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
 
 	return node
 }
@@ -1064,4 +1213,228 @@ func (p *Parser) parseGroupedExpression() ASTNode {
 		p.nextToken()
 	}
 	return expr
+}
+
+func (p *Parser) parseCast() ASTNode {
+	debugPrint("    [parseCast] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	node := NewASTNode(CastNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	node.Value = "CAST"
+	p.nextToken() // consume CAST
+
+	debugPrint("    [parseCast] after CAST: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after CAST, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume '('
+
+	debugPrint("    [parseCast] after '(': token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Parse expression to be casted
+	expr := p.parseExpression()
+	if expr.Type != "" {
+		node.AddChild(expr)
+	}
+
+	debugPrint("    [parseCast] after expression: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Expect 'AS'
+	if p.curToken.Type != token.AS {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected 'AS' in CAST expression, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume 'AS'
+
+	debugPrint("    [parseCast] after AS: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Parse target type
+	if p.curToken.Type != token.IDENTIFIER {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected type name after AS in CAST, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return node
+	}
+
+	typeNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	typeNode.Value = p.curToken.Literal
+	node.AddChild(typeNode)
+	p.nextToken() // consume type
+
+	debugPrint("    [parseCast] after type: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Expect ')'
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in CAST expression, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume ')'
+
+	debugPrint("    [parseCast] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	return node
+}
+
+func (p *Parser) parseCase() ASTNode {
+	debugPrint("[parseCase] START: token=%s, literal='%s', line=%d\n",
+		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
+
+	node := NewASTNode(CaseNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	p.nextToken() // consume CASE
+
+	debugPrint("[parseCase] after CASE: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Check if this is a simple CASE
+	var isSimpleCase bool
+	var caseExpr ASTNode
+
+	if p.curToken.Type != token.WHEN {
+		isSimpleCase = true
+		debugPrint("[parseCase] Simple CASE, parsing expression\n")
+		caseExpr = p.parseExpression()
+		if caseExpr.Type != "" {
+			node.AddChild(caseExpr)
+		}
+		debugPrint("[parseCase] after expression: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+	} else {
+		debugPrint("[parseCase] Searched CASE\n")
+	}
+
+	// Parse WHEN clauses
+	whenCount := 0
+	for p.curToken.Type == token.WHEN {
+		whenCount++
+		debugPrint("[parseCase] Parsing WHEN #%d at line %d\n", whenCount, p.curToken.Line)
+		whenNode := p.parseWhen(isSimpleCase)
+		if whenNode.Type != "" {
+			node.AddChild(whenNode)
+		}
+		debugPrint("[parseCase] after WHEN #%d: token=%s, literal='%s'\n",
+			whenCount, p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Parse ELSE if exists
+	if p.curToken.Type == token.ELSE {
+		debugPrint("[parseCase] Parsing ELSE\n")
+		p.nextToken() // consume ELSE
+		elseExpr := p.parseExpression()
+		if elseExpr.Type != "" {
+			elseNode := NewASTNode(BlockNode, "else", elseExpr.Line, elseExpr.Column)
+			elseNode.AddChild(elseExpr)
+			node.AddChild(elseNode)
+		}
+		debugPrint("[parseCase] after ELSE: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Expect END - CONSUME IT
+	if p.curToken.Type == token.END {
+		debugPrint("[parseCase] Found END, consuming it\n")
+		p.nextToken() // consume END
+	} else {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected END in CASE expression, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+	}
+
+	debugPrint("[parseCase] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// CRITICAL: If next token is THEN or ELSE or END, return immediately
+	// Don't let parseExpression try to parse them as expressions
+	if p.curToken.Type == token.THEN || p.curToken.Type == token.ELSE || p.curToken.Type == token.END {
+		debugPrint("[parseCase] Next token is %s, returning early\n", p.curToken.Type)
+		return node
+	}
+
+	return node
+}
+
+func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
+	debugPrint("  [parseWhen] START: token=%s, literal='%s', isSimple=%v\n",
+		p.curToken.Type, p.curToken.Literal, isSimpleCase)
+
+	node := NewASTNode(WhenNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	p.nextToken() // consume WHEN
+
+	debugPrint("  [parseWhen] after WHEN: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	var condition ASTNode
+
+	if isSimpleCase {
+		debugPrint("  [parseWhen] Simple CASE: parsing value\n")
+		condition = p.parseExpression()
+		if condition.Type != "" {
+			node.AddChild(condition)
+		}
+		debugPrint("  [parseWhen] after value: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+	} else {
+		debugPrint("  [parseWhen] Searched CASE: parsing condition\n")
+		condition = p.parseExpression()
+		if condition.Type != "" {
+			node.AddChild(condition)
+		}
+		debugPrint("  [parseWhen] after condition: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+	}
+
+	// Expect THEN
+	if p.curToken.Type == token.THEN {
+		debugPrint("  [parseWhen] Found THEN\n")
+		p.nextToken() // consume THEN
+	} else {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected THEN in CASE WHEN, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return node
+	}
+
+	debugPrint("  [parseWhen] after THEN: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Parse result expression
+	result := p.parseExpression()
+	if result.Type != "" {
+		node.AddChild(result)
+	}
+
+	debugPrint("  [parseWhen] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	return node
+}
+
+func (p *Parser) GetCurToken() token.Token {
+	return p.curToken
+}
+
+func (p *Parser) GetPeekToken() token.Token {
+	return p.peekToken
+}
+
+func (p *Parser) GetNextToken() {
+	p.nextToken()
+}
+
+func (p *Parser) GetPosition() int {
+	return p.position
 }

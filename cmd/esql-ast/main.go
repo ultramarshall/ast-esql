@@ -21,8 +21,14 @@ func main() {
 		validate = flag.Bool("validate", false, "Validate AST")
 		generate = flag.Bool("generate", false, "Generate ESQL code from AST")
 		output   = flag.String("o", "", "Output file")
+		debug    = flag.Bool("debug", false, "Enable debug output")
 	)
 	flag.Parse()
+
+	// Enable debug mode if flag is set
+	if *debug {
+		parser.DebugMode = true
+	}
 
 	if *file == "" && *code == "" {
 		fmt.Println("Usage: esql-ast -f <file> or -c <code>")
