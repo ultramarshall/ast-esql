@@ -1,0 +1,12 @@
+--- tests/baseline/case_full.analyze.txt	2026-06-25 04:01:00.701202174 +0700
++++ tests/output/case_full.analyze.txt	2026-06-25 04:01:05.215222696 +0700
+@@ -5,8 +5,8 @@
+ Variables used: 7
+ 
+ Variables:
+-  grade: STRING (line 3)
+   result: INTEGER (line 5)
+   score: INTEGER (line 2)
+   status: STRING (line 4)
++  grade: STRING (line 3)
+ 

@@ -452,6 +452,43 @@ func (p *Parser) parseDeclare() ASTNode {
 	return node
 }
 
+func (p *Parser) parseFieldReferenceFromKeyword(keyword string) ASTNode {
+	debugPrint("  [parseFieldReferenceFromKeyword] keyword=%s\n", keyword)
+
+	// Buat node untuk keyword
+	baseNode := NewASTNode(IdentifierNode, keyword, p.curToken.Line, p.curToken.Column)
+	baseNode.Value = keyword
+	p.nextToken() // consume keyword (ENVIRONMENT)
+
+	// Parse field reference
+	return p.parseFieldReference(baseNode)
+}
+
+func (p *Parser) parseField() ASTNode {
+	debugPrint("  [parseField] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	node := NewASTNode(FieldReferenceNode, "FIELD", p.curToken.Line, p.curToken.Column)
+	p.nextToken() // consume FIELD
+
+	// Parse field path
+	// FIELD Environment.Variables.Status
+	if p.curToken.Type == token.IDENTIFIER || p.curToken.Type == token.ENVIRONMENT {
+		base := p.parseIdentifier()
+		node.AddChild(base)
+
+		// Lanjutkan field reference
+		for p.curToken.Type == token.DOT {
+			node = p.parseFieldReference(node)
+		}
+	}
+
+	debugPrint("  [parseField] END: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	return node
+}
+
 func (p *Parser) parseSet() ASTNode {
 	debugPrint("  [parseSet] START: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
@@ -459,12 +496,17 @@ func (p *Parser) parseSet() ASTNode {
 	node := NewASTNode(SetNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
 	p.nextToken() // consume SET
 
-	// Parse target - langsung parse identifier atau field reference
+	// Parse target - handle berbagai tipe target
 	var target ASTNode
-	if p.curToken.Type == token.IDENTIFIER {
+	switch p.curToken.Type {
+	case token.IDENTIFIER:
 		target = p.parseIdentifier()
-	} else {
-		// Fallback: parse expression tapi hati-hati
+	case token.ENVIRONMENT:
+		target = p.parseFieldReferenceFromKeyword("Environment")
+	case token.FIELD:
+		target = p.parseField()
+	default:
+		// Fallback: parse expression
 		target = p.parseExpression()
 	}
 
@@ -1077,17 +1119,19 @@ func (p *Parser) parsePrimary() ASTNode {
 			p.curToken.Type, p.curToken.Literal)
 		return result
 	case token.CASE:
-		// CASE expression sebagai primary
 		result := p.parseCase()
 		debugPrint("    [parsePrimary] after CASE: token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return result
 	case token.CAST:
-		// CAST expression sebagai primary
 		result := p.parseCast()
 		debugPrint("    [parsePrimary] after CAST: token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return result
+	case token.DOT:
+		debugPrint("    [parsePrimary] WARNING: DOT without identifier, skipping...\n")
+		p.nextToken()
+		return ASTNode{}
 	default:
 		debugPrint("    [parsePrimary] UNKNOWN: token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)

@@ -1,0 +1,10 @@
+--- tests/baseline/case_nested_if.analyze.txt	2026-06-25 03:57:46.272292982 +0700
++++ tests/output/case_nested_if.analyze.txt	2026-06-25 03:58:09.550406424 +0700
+@@ -5,6 +5,6 @@
+ Variables used: 4
+ 
+ Variables:
+-  result: INTEGER (line 3)
+   score: INTEGER (line 2)
++  result: INTEGER (line 3)
+ 

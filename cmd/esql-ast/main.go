@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"sort"
 
 	"esql-ast-tool/pkg/analyzer"
 	"esql-ast-tool/pkg/generator"
@@ -88,7 +89,14 @@ func main() {
 
 		if len(analysisResult.Variables) > 0 {
 			result += "\nVariables:\n"
-			for name, info := range analysisResult.Variables {
+			// Sort variable names for consistent output
+			var varNames []string
+			for name := range analysisResult.Variables {
+				varNames = append(varNames, name)
+			}
+			sort.Strings(varNames)
+			for _, name := range varNames {
+				info := analysisResult.Variables[name]
 				result += fmt.Sprintf("  %s: %s (line %d)\n", name, info.Type, info.Line)
 			}
 		}

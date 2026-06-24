@@ -1,0 +1,10 @@
+--- tests/baseline/case_searched.analyze.txt	2026-06-25 03:57:46.265292948 +0700
++++ tests/output/case_searched.analyze.txt	2026-06-25 03:58:09.529406321 +0700
+@@ -5,6 +5,6 @@
+ Variables used: 5
+ 
+ Variables:
+-  status: STRING (line 3)
+   score: INTEGER (line 2)
++  status: STRING (line 3)
+ 

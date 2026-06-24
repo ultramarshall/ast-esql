@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"esql-ast-tool/pkg/parser"
+	"sort"
 )
 
 type AnalysisResult struct {
@@ -54,20 +55,61 @@ func (a *Analyzer) Analyze(program parser.Program) AnalysisResult {
 		a.analyzeNode(stmt)
 	}
 
+	// Sort variable names for consistent output
+	var varNames []string
+	for name := range a.variables {
+		varNames = append(varNames, name)
+	}
+	sort.Strings(varNames)
+
+	// Rebuild variables with sorted order
+	sortedVariables := make(map[string]VariableInfo)
+	for _, name := range varNames {
+		sortedVariables[name] = a.variables[name]
+	}
+
+	// Sort function names
+	var funcNames []string
+	for name := range a.functions {
+		funcNames = append(funcNames, name)
+	}
+	sort.Strings(funcNames)
+
+	sortedFunctions := make(map[string]FunctionInfo)
+	for _, name := range funcNames {
+		sortedFunctions[name] = a.functions[name]
+	}
+
+	// Sort procedure names
+	var procNames []string
+	for name := range a.procedures {
+		procNames = append(procNames, name)
+	}
+	sort.Strings(procNames)
+
+	sortedProcedures := make(map[string]ProcedureInfo)
+	for _, name := range procNames {
+		sortedProcedures[name] = a.procedures[name]
+	}
+
+	// Sort used variables
 	usedVars := make([]string, 0, len(a.usedVariables))
 	for v := range a.usedVariables {
 		usedVars = append(usedVars, v)
 	}
+	sort.Strings(usedVars)
 
+	// Sort defined variables
 	definedVars := make([]string, 0, len(a.definedVariables))
 	for v := range a.definedVariables {
 		definedVars = append(definedVars, v)
 	}
+	sort.Strings(definedVars)
 
 	return AnalysisResult{
-		Variables:        a.variables,
-		Functions:        a.functions,
-		Procedures:       a.procedures,
+		Variables:        sortedVariables,
+		Functions:        sortedFunctions,
+		Procedures:       sortedProcedures,
 		UsedVariables:    usedVars,
 		DefinedVariables: definedVars,
 		Issues:           a.issues,

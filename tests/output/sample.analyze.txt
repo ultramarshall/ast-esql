@@ -1,0 +1,9 @@
+Program has 1 statements
+
+=== Analysis Results ===
+Variables defined: 1
+Variables used: 6
+
+Variables:
+  myVar: INTEGER (line 2)
+
