@@ -1,0 +1,11 @@
+Program has 1 statements
+
+=== Analysis Results ===
+Variables defined: 3
+Variables used: 7
+
+Variables:
+  result: INTEGER (line 4)
+  var1: INTEGER (line 2)
+  var2: STRING (line 3)
+

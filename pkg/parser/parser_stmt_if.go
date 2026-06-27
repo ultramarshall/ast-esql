@@ -11,16 +11,18 @@ func (p *Parser) parseIf() ASTNode {
 		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
 
 	node := NewASTNode(IfNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume IF
 
 	debugPrint("[parseIf] after IF: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	// Parse condition
+	// Parse condition - parseExpression will handle NOT
 	cond := p.parseExpression()
 	if cond.Type != "" {
 		debugPrint("[parseIf] condition parsed: type=%s\n", cond.Type)
 		node.AddChild(cond)
+	} else {
+		debugPrint("[parseIf] WARNING: empty condition\n")
 	}
 
 	debugPrint("[parseIf] after condition: token=%s, literal='%s'\n",
@@ -29,13 +31,16 @@ func (p *Parser) parseIf() ASTNode {
 	// Expect THEN
 	if p.curToken.Type == token.THEN {
 		debugPrint("[parseIf] Found THEN, consuming it\n")
-		p.nextToken()
+		p.nextToken() // consume THEN
 	} else {
 		debugPrint("[parseIf] ERROR: expected THEN, got %s\n", p.curToken.Type)
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected THEN after IF condition, got %s at line %d",
 				p.curToken.Type, p.curToken.Line))
-		p.nextToken()
+		// Advance to prevent infinite loop
+		if p.curToken.Type != token.EOF {
+			p.nextToken()
+		}
 		return node
 	}
 

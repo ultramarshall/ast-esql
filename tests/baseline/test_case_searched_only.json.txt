@@ -1,0 +1,239 @@
+{
+  "statements": [
+    {
+      "type": "Create",
+      "children": [
+        {
+          "type": "Module",
+          "value": "COMPUTE",
+          "children": [
+            {
+              "type": "Identifier",
+              "value": "TestCaseSearched",
+              "line": 1,
+              "column": 23
+            },
+            {
+              "type": "Declare",
+              "children": [
+                {
+                  "type": "Identifier",
+                  "value": "score",
+                  "line": 2,
+                  "column": 13
+                },
+                {
+                  "type": "Identifier",
+                  "value": "INTEGER",
+                  "line": 2,
+                  "column": 19
+                }
+              ],
+              "line": 2,
+              "column": 5
+            },
+            {
+              "type": "Declare",
+              "children": [
+                {
+                  "type": "Identifier",
+                  "value": "status",
+                  "line": 3,
+                  "column": 13
+                },
+                {
+                  "type": "Identifier",
+                  "value": "STRING",
+                  "line": 3,
+                  "column": 20
+                }
+              ],
+              "line": 3,
+              "column": 5
+            },
+            {
+              "type": "Set",
+              "children": [
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Identifier",
+                      "value": "score",
+                      "line": 4,
+                      "column": 9
+                    }
+                  ],
+                  "line": 4,
+                  "column": 9
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Literal",
+                      "value": 85,
+                      "line": 4,
+                      "column": 17
+                    }
+                  ],
+                  "line": 4,
+                  "column": 17
+                }
+              ],
+              "line": 4,
+              "column": 5
+            },
+            {
+              "type": "Set",
+              "children": [
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Identifier",
+                      "value": "status",
+                      "line": 5,
+                      "column": 9
+                    }
+                  ],
+                  "line": 5,
+                  "column": 9
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Case",
+                      "children": [
+                        {
+                          "type": "When",
+                          "children": [
+                            {
+                              "type": "Comparison",
+                              "children": [
+                                {
+                                  "type": "Identifier",
+                                  "value": "score",
+                                  "line": 6,
+                                  "column": 14
+                                },
+                                {
+                                  "type": "Literal",
+                                  "value": 90,
+                                  "line": 6,
+                                  "column": 23
+                                }
+                              ],
+                              "line": 6,
+                              "column": 20
+                            },
+                            {
+                              "type": "Literal",
+                              "value": "Excellent",
+                              "line": 6,
+                              "column": 31
+                            }
+                          ],
+                          "line": 6,
+                          "column": 9
+                        },
+                        {
+                          "type": "When",
+                          "children": [
+                            {
+                              "type": "Comparison",
+                              "children": [
+                                {
+                                  "type": "Identifier",
+                                  "value": "score",
+                                  "line": 7,
+                                  "column": 14
+                                },
+                                {
+                                  "type": "Literal",
+                                  "value": 80,
+                                  "line": 7,
+                                  "column": 23
+                                }
+                              ],
+                              "line": 7,
+                              "column": 20
+                            },
+                            {
+                              "type": "Literal",
+                              "value": "Good",
+                              "line": 7,
+                              "column": 31
+                            }
+                          ],
+                          "line": 7,
+                          "column": 9
+                        },
+                        {
+                          "type": "When",
+                          "children": [
+                            {
+                              "type": "Comparison",
+                              "children": [
+                                {
+                                  "type": "Identifier",
+                                  "value": "score",
+                                  "line": 8,
+                                  "column": 14
+                                },
+                                {
+                                  "type": "Literal",
+                                  "value": 70,
+                                  "line": 8,
+                                  "column": 23
+                                }
+                              ],
+                              "line": 8,
+                              "column": 20
+                            },
+                            {
+                              "type": "Literal",
+                              "value": "Average",
+                              "line": 8,
+                              "column": 31
+                            }
+                          ],
+                          "line": 8,
+                          "column": 9
+                        },
+                        {
+                          "type": "Block",
+                          "children": [
+                            {
+                              "type": "Literal",
+                              "value": "Poor",
+                              "line": 9,
+                              "column": 14
+                            }
+                          ],
+                          "line": 9,
+                          "column": 14
+                        }
+                      ],
+                      "line": 5,
+                      "column": 18
+                    }
+                  ],
+                  "line": 5,
+                  "column": 18
+                }
+              ],
+              "line": 5,
+              "column": 5
+            }
+          ],
+          "line": 1,
+          "column": 23
+        }
+      ],
+      "line": 1,
+      "column": 1
+    }
+  ]
+}

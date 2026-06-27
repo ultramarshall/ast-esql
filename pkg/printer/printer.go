@@ -127,6 +127,12 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = "Case"
 	case parser.WhenNode:
 		displayName = "When"
+	case parser.IsNullNode:
+		displayName = "IsNull"
+	case parser.IsNotNullNode:
+		displayName = "IsNotNull"
+	case parser.BetweenNode:
+		displayName = "Between"
 
 	}
 

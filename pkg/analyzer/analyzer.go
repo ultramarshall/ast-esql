@@ -200,6 +200,17 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 			a.analyzeNode(child)
 		}
 
+	case parser.IsNullNode, parser.IsNotNullNode:
+		// Analyze the expression being checked
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+	case parser.BetweenNode:
+		// Analyze all three children: expr, lower, upper
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+
 	}
 
 	for _, child := range node.Children {

@@ -46,6 +46,9 @@ const (
 	LiteralNode        NodeType = "Literal"
 	IdentifierNode     NodeType = "Identifier"
 	CastNode           NodeType = "Cast"
+	IsNullNode         NodeType = "IsNull"
+	IsNotNullNode      NodeType = "IsNotNull"
+	BetweenNode        NodeType = "Between"
 )
 
 type ASTNode struct {

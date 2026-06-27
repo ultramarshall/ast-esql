@@ -72,6 +72,10 @@ const (
 	CAST        = "CAST"
 	CASE        = "CASE"
 	WHEN        = "WHEN"
+	IS          = "IS"
+	ISNULL      = "ISNULL"
+	NOTNULL     = "NOTNULL"
+	BETWEEN     = "BETWEEN"
 )
 
 type Token struct {
@@ -122,6 +126,9 @@ func LookupIdent(ident string) string {
 		"CAST":        CAST,
 		"CASE":        CASE,
 		"WHEN":        WHEN,
+		"IS":          IS,
+		"NULL":        IDENTIFIER,
+		"BETWEEN":     BETWEEN,
 	}
 	if tok, ok := keywords[ident]; ok {
 		return tok

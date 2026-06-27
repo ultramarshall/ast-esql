@@ -1,0 +1,392 @@
+{
+  "statements": [
+    {
+      "type": "Create",
+      "children": [
+        {
+          "type": "Module",
+          "value": "COMPUTE",
+          "children": [
+            {
+              "type": "Identifier",
+              "value": "TestNestedCast",
+              "line": 1,
+              "column": 23
+            },
+            {
+              "type": "Declare",
+              "children": [
+                {
+                  "type": "Identifier",
+                  "value": "strVar",
+                  "line": 2,
+                  "column": 13
+                },
+                {
+                  "type": "Identifier",
+                  "value": "STRING",
+                  "line": 2,
+                  "column": 20
+                }
+              ],
+              "line": 2,
+              "column": 5
+            },
+            {
+              "type": "Declare",
+              "children": [
+                {
+                  "type": "Identifier",
+                  "value": "intVar",
+                  "line": 3,
+                  "column": 13
+                },
+                {
+                  "type": "Identifier",
+                  "value": "INTEGER",
+                  "line": 3,
+                  "column": 20
+                }
+              ],
+              "line": 3,
+              "column": 5
+            },
+            {
+              "type": "Declare",
+              "children": [
+                {
+                  "type": "Identifier",
+                  "value": "result",
+                  "line": 4,
+                  "column": 13
+                },
+                {
+                  "type": "Identifier",
+                  "value": "INTEGER",
+                  "line": 4,
+                  "column": 20
+                }
+              ],
+              "line": 4,
+              "column": 5
+            },
+            {
+              "type": "Set",
+              "children": [
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Identifier",
+                      "value": "strVar",
+                      "line": 6,
+                      "column": 9
+                    }
+                  ],
+                  "line": 6,
+                  "column": 9
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Literal",
+                      "value": "123",
+                      "line": 6,
+                      "column": 18
+                    }
+                  ],
+                  "line": 6,
+                  "column": 18
+                }
+              ],
+              "line": 6,
+              "column": 5
+            },
+            {
+              "type": "Set",
+              "children": [
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Identifier",
+                      "value": "intVar",
+                      "line": 7,
+                      "column": 9
+                    }
+                  ],
+                  "line": 7,
+                  "column": 9
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Cast",
+                      "value": "CAST",
+                      "children": [
+                        {
+                          "type": "Cast",
+                          "value": "CAST",
+                          "children": [
+                            {
+                              "type": "Identifier",
+                              "value": "strVar",
+                              "line": 7,
+                              "column": 28
+                            },
+                            {
+                              "type": "Identifier",
+                              "value": "STRING",
+                              "line": 7,
+                              "column": 38
+                            }
+                          ],
+                          "line": 7,
+                          "column": 23
+                        },
+                        {
+                          "type": "Identifier",
+                          "value": "INTEGER",
+                          "line": 7,
+                          "column": 49
+                        }
+                      ],
+                      "line": 7,
+                      "column": 18
+                    }
+                  ],
+                  "line": 7,
+                  "column": 18
+                }
+              ],
+              "line": 7,
+              "column": 5
+            },
+            {
+              "type": "Set",
+              "children": [
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Identifier",
+                      "value": "result",
+                      "line": 8,
+                      "column": 9
+                    }
+                  ],
+                  "line": 8,
+                  "column": 9
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Cast",
+                      "value": "CAST",
+                      "children": [
+                        {
+                          "type": "Cast",
+                          "value": "CAST",
+                          "children": [
+                            {
+                              "type": "Literal",
+                              "value": "456",
+                              "line": 8,
+                              "column": 28
+                            },
+                            {
+                              "type": "Identifier",
+                              "value": "INTEGER",
+                              "line": 8,
+                              "column": 37
+                            }
+                          ],
+                          "line": 8,
+                          "column": 23
+                        },
+                        {
+                          "type": "Identifier",
+                          "value": "INTEGER",
+                          "line": 8,
+                          "column": 49
+                        }
+                      ],
+                      "line": 8,
+                      "column": 18
+                    }
+                  ],
+                  "line": 8,
+                  "column": 18
+                }
+              ],
+              "line": 8,
+              "column": 5
+            },
+            {
+              "type": "Set",
+              "children": [
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Identifier",
+                      "value": "strVar",
+                      "line": 9,
+                      "column": 9
+                    }
+                  ],
+                  "line": 9,
+                  "column": 9
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Cast",
+                      "value": "CAST",
+                      "children": [
+                        {
+                          "type": "Cast",
+                          "value": "CAST",
+                          "children": [
+                            {
+                              "type": "Literal",
+                              "value": 789,
+                              "line": 9,
+                              "column": 28
+                            },
+                            {
+                              "type": "Identifier",
+                              "value": "STRING",
+                              "line": 9,
+                              "column": 35
+                            }
+                          ],
+                          "line": 9,
+                          "column": 23
+                        },
+                        {
+                          "type": "Identifier",
+                          "value": "STRING",
+                          "line": 9,
+                          "column": 46
+                        }
+                      ],
+                      "line": 9,
+                      "column": 18
+                    }
+                  ],
+                  "line": 9,
+                  "column": 18
+                }
+              ],
+              "line": 9,
+              "column": 5
+            },
+            {
+              "type": "If",
+              "children": [
+                {
+                  "type": "Comparison",
+                  "children": [
+                    {
+                      "type": "Cast",
+                      "value": "CAST",
+                      "children": [
+                        {
+                          "type": "Cast",
+                          "value": "CAST",
+                          "children": [
+                            {
+                              "type": "Identifier",
+                              "value": "strVar",
+                              "line": 11,
+                              "column": 18
+                            },
+                            {
+                              "type": "Identifier",
+                              "value": "STRING",
+                              "line": 11,
+                              "column": 28
+                            }
+                          ],
+                          "line": 11,
+                          "column": 13
+                        },
+                        {
+                          "type": "Identifier",
+                          "value": "INTEGER",
+                          "line": 11,
+                          "column": 39
+                        }
+                      ],
+                      "line": 11,
+                      "column": 8
+                    },
+                    {
+                      "type": "Literal",
+                      "value": 100,
+                      "line": 11,
+                      "column": 50
+                    }
+                  ],
+                  "line": 11,
+                  "column": 48
+                },
+                {
+                  "type": "Block",
+                  "children": [
+                    {
+                      "type": "Set",
+                      "children": [
+                        {
+                          "type": "Block",
+                          "children": [
+                            {
+                              "type": "Identifier",
+                              "value": "result",
+                              "line": 12,
+                              "column": 13
+                            }
+                          ],
+                          "line": 12,
+                          "column": 13
+                        },
+                        {
+                          "type": "Block",
+                          "children": [
+                            {
+                              "type": "Literal",
+                              "value": 1,
+                              "line": 12,
+                              "column": 22
+                            }
+                          ],
+                          "line": 12,
+                          "column": 22
+                        }
+                      ],
+                      "line": 12,
+                      "column": 9
+                    }
+                  ],
+                  "line": 12,
+                  "column": 9
+                }
+              ],
+              "line": 11,
+              "column": 5
+            }
+          ],
+          "line": 1,
+          "column": 23
+        }
+      ],
+      "line": 1,
+      "column": 1
+    }
+  ]
+}

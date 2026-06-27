@@ -1,0 +1,25 @@
+CREATE COMPUTE MODULE TestIsNull
+    DECLARE var1 INTEGER;
+    DECLARE var2 STRING;
+    DECLARE result INTEGER;
+    
+    SET var1 = NULL;
+    SET var2 = 'Hello';
+    
+    -- Test IS NULL
+    IF var1 IS NULL THEN
+        SET result = 1;
+    END IF;
+    
+    -- Test IS NOT NULL
+    IF var2 IS NOT NULL THEN
+        SET result = 2;
+    END IF;
+    
+    -- Test dalam CASE
+    SET result = CASE 
+        WHEN var1 IS NULL THEN 100
+        WHEN var2 IS NOT NULL THEN 200
+        ELSE 0
+    END;
+END MODULE;

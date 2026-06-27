@@ -1,0 +1,17 @@
+CREATE COMPUTE MODULE TestBetween
+    DECLARE score INTEGER;
+    DECLARE result INTEGER;
+    DECLARE grade STRING;
+    SET score = 85;
+    IF score BETWEEN 80 AND 100 THEN
+        SET result = 1;
+    END IF;
+    IF NOT score BETWEEN 0 AND 50 THEN
+        SET result = 2;
+    END IF;
+    SET grade = CASE WHEN score BETWEEN 90 AND 100 THEN 'A' WHEN score BETWEEN 80 AND 89 THEN 'B' WHEN score BETWEEN 70 AND 79 THEN 'C' ELSE 'D' END;
+    IF score + 5 BETWEEN 80 AND 100 THEN
+        SET result = 3;
+    END IF;
+END MODULE;
+

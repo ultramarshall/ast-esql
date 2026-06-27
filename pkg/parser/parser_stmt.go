@@ -43,6 +43,9 @@ func (p *Parser) parseStatement() ASTNode {
 	case token.END:
 		p.nextToken()
 		return ASTNode{}
+	case token.WHEN, token.ELSE, token.THEN:
+		p.nextToken()
+		return ASTNode{}
 	default:
 		expr := p.parseExpression()
 		if p.curToken.Type == token.SEMICOLON {

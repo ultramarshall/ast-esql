@@ -82,6 +82,27 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 	case parser.WhenNode:
 		return g.generateWhen(node, false)
 
+	case parser.IsNullNode:
+		if len(node.Children) > 0 {
+			return g.generateNode(node.Children[0], 0) + " IS NULL"
+		}
+		return "IS NULL"
+
+	case parser.IsNotNullNode:
+		if len(node.Children) > 0 {
+			return g.generateNode(node.Children[0], 0) + " IS NOT NULL"
+		}
+		return "IS NOT NULL"
+
+	case parser.BetweenNode:
+		if len(node.Children) >= 3 {
+			expr := g.generateNode(node.Children[0], 0)
+			lower := g.generateNode(node.Children[1], 0)
+			upper := g.generateNode(node.Children[2], 0)
+			return expr + " BETWEEN " + lower + " AND " + upper
+		}
+		return "BETWEEN"
+
 	default:
 		var sb strings.Builder
 		if node.Token != "" {

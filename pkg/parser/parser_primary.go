@@ -241,7 +241,7 @@ func (p *Parser) parseCase() ASTNode {
 		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
 
 	node := NewASTNode(CaseNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume CASE
 
 	debugPrint("[parseCase] after CASE: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
@@ -262,6 +262,7 @@ func (p *Parser) parseCase() ASTNode {
 		debugPrint("[parseCase] Searched CASE\n")
 	}
 
+	// Parse WHEN clauses
 	whenCount := 0
 	for p.curToken.Type == token.WHEN {
 		whenCount++
@@ -274,9 +275,10 @@ func (p *Parser) parseCase() ASTNode {
 			whenCount, p.curToken.Type, p.curToken.Literal)
 	}
 
+	// Parse ELSE if exists
 	if p.curToken.Type == token.ELSE {
 		debugPrint("[parseCase] Parsing ELSE\n")
-		p.nextToken()
+		p.nextToken() // consume ELSE
 		elseExpr := p.parseExpression()
 		if elseExpr.Type != "" {
 			elseNode := NewASTNode(BlockNode, "else", elseExpr.Line, elseExpr.Column)
@@ -287,9 +289,10 @@ func (p *Parser) parseCase() ASTNode {
 			p.curToken.Type, p.curToken.Literal)
 	}
 
+	// Expect END - CONSUME IT
 	if p.curToken.Type == token.END {
 		debugPrint("[parseCase] Found END, consuming it\n")
-		p.nextToken()
+		p.nextToken() // consume END
 	} else {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected END in CASE expression, got %s at line %d",
@@ -299,11 +302,6 @@ func (p *Parser) parseCase() ASTNode {
 	debugPrint("[parseCase] END: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	if p.curToken.Type == token.THEN || p.curToken.Type == token.ELSE || p.curToken.Type == token.END {
-		debugPrint("[parseCase] Next token is %s, returning early\n", p.curToken.Type)
-		return node
-	}
-
 	return node
 }
 
@@ -312,7 +310,7 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 		p.curToken.Type, p.curToken.Literal, isSimpleCase)
 
 	node := NewASTNode(WhenNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume WHEN
 
 	debugPrint("  [parseWhen] after WHEN: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
@@ -337,9 +335,10 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 			p.curToken.Type, p.curToken.Literal)
 	}
 
+	// Expect THEN
 	if p.curToken.Type == token.THEN {
 		debugPrint("  [parseWhen] Found THEN\n")
-		p.nextToken()
+		p.nextToken() // consume THEN
 	} else {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected THEN in CASE WHEN, got %s at line %d",
@@ -350,6 +349,7 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 	debugPrint("  [parseWhen] after THEN: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
+	// Parse result expression - TAPI HATI-HATI JANGAN PARSE SAMPAI MELEWATI END/WHEN/ELSE
 	result := p.parseExpression()
 	if result.Type != "" {
 		node.AddChild(result)

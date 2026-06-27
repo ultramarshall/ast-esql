@@ -43,6 +43,24 @@ func (l *Lexer) peekChar() byte {
 	return l.input[l.readPosition]
 }
 
+func (l *Lexer) peekIdentifier() string {
+	pos := l.position
+	oldPos := l.position
+	oldReadPos := l.readPosition
+	oldCh := l.ch
+
+	for isLetter(l.ch) || isDigit(l.ch) || l.ch == '_' {
+		l.readChar()
+	}
+	ident := l.input[pos:l.position]
+
+	l.position = oldPos
+	l.readPosition = oldReadPos
+	l.ch = oldCh
+
+	return ident
+}
+
 func (l *Lexer) skipWhitespace() {
 	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
 		if l.ch == '\n' {
@@ -55,13 +73,11 @@ func (l *Lexer) skipWhitespace() {
 
 func (l *Lexer) skipComments() {
 	if l.ch == '-' && l.peekChar() == '-' {
-		// Single line comment
 		for l.ch != '\n' && l.ch != 0 {
 			l.readChar()
 		}
 		l.skipWhitespace()
 	} else if l.ch == '/' && l.peekChar() == '*' {
-		// Multi-line comment
 		l.readChar()
 		l.readChar()
 		for !(l.ch == '*' && l.peekChar() == '/') && l.ch != 0 {
@@ -178,6 +194,37 @@ func (l *Lexer) NextToken() token.Token {
 		if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
 			tok.Type = token.LookupIdent(strings.ToUpper(tok.Literal))
+
+			// Handle IS NULL / IS NOT NULL
+			if tok.Type == token.IS {
+				l.skipWhitespace()
+				if strings.ToUpper(l.peekIdentifier()) == "NULL" {
+					l.readIdentifier()
+					tok.Type = token.ISNULL
+					tok.Literal = "IS NULL"
+				} else if strings.ToUpper(l.peekIdentifier()) == "NOT" {
+					l.readIdentifier()
+					l.skipWhitespace()
+					if strings.ToUpper(l.peekIdentifier()) == "NULL" {
+						l.readIdentifier()
+						tok.Type = token.NOTNULL
+						tok.Literal = "IS NOT NULL"
+					}
+				}
+				return tok
+			}
+
+			// Handle NOT BETWEEN - tapi jangan gabung jadi satu token
+			// Biarkan NOT dan BETWEEN sebagai token terpisah
+			if tok.Type == token.NOT {
+				// Cek apakah next token adalah BETWEEN
+				l.skipWhitespace()
+				if strings.ToUpper(l.peekIdentifier()) == "BETWEEN" {
+					// Return NOT, next token akan BETWEEN
+					return tok
+				}
+			}
+
 			return tok
 		} else if isDigit(l.ch) {
 			tok.Type = token.NUMBER
