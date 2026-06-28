@@ -1,0 +1,29 @@
+CREATE COMPUTE MODULE TestLike
+    DECLARE name STRING;
+    DECLARE result INTEGER;
+    DECLARE status STRING;
+    
+    SET name = 'John Doe';
+    
+    -- Basic LIKE
+    IF name LIKE 'John%' THEN
+        SET result = 1;
+    END IF;
+    
+    -- NOT LIKE
+    IF name NOT LIKE '%Smith%' THEN
+        SET result = 2;
+    END IF;
+    
+    -- LIKE in CASE
+    SET status = CASE 
+        WHEN name LIKE 'A%' THEN 'Starts with A'
+        WHEN name LIKE '%Doe' THEN 'Ends with Doe'
+        ELSE 'Other'
+    END;
+    
+    -- LIKE with underscore
+    IF name LIKE 'J__n%' THEN
+        SET result = 3;
+    END IF;
+END MODULE;

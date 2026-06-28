@@ -134,6 +134,13 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = fmt.Sprintf("BinaryOp (%s)", node.Token)
 	case parser.ParenthesizedNode:
 		displayName = "Parenthesized"
+
+	case parser.LikeNode:
+		if node.Not {
+			displayName = "Like (NOT)"
+		} else {
+			displayName = "Like"
+		}
 	}
 
 	spanStr := node.Span.String()

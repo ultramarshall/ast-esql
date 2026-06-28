@@ -118,6 +118,17 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		}
 		return node.Token
 
+	case parser.LikeNode:
+		if len(node.Children) >= 2 {
+			expr := g.generateNode(node.Children[0], 0)
+			pattern := g.generateNode(node.Children[1], 0)
+			if node.Not {
+				return expr + " NOT LIKE " + pattern
+			}
+			return expr + " LIKE " + pattern
+		}
+		return "LIKE"
+
 	default:
 		var sb strings.Builder
 		if node.Token != "" {

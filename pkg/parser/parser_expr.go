@@ -113,152 +113,176 @@ func (p *Parser) parseComparison() ASTNode {
 	debugPrint("    [parseComparison] after parseAdditive: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	// Handle IS NULL / IS NOT NULL
-	if p.curToken.Type == token.ISNULL || p.curToken.Type == token.NOTNULL {
-		debugPrint("    [parseComparison] found IS NULL/NOT NULL: %s\n", p.curToken.Literal)
-		tok := p.curToken
-		p.nextToken()
+	// Cek operator-operator yang mungkin muncul setelah node
+	return p.parseComparisonSuffix(node)
+}
 
-		var nullNode ASTNode
-		if tok.Type == token.ISNULL {
-			nullNode = NewASTNode(IsNullNode, "IS NULL", tok.Line, tok.Column)
-		} else {
-			nullNode = NewASTNode(IsNotNullNode, "IS NOT NULL", tok.Line, tok.Column)
-		}
-		nullNode.AddChild(node)
-		nullNode.Span = combineSpan(node, nullNode)
-		debugPrint("    [parseComparison] returning IS NULL/NOT NULL node\n")
-		return nullNode
+// parseComparisonSuffix menangani operator setelah node kiri
+func (p *Parser) parseComparisonSuffix(left ASTNode) ASTNode {
+	switch p.curToken.Type {
+	case token.ISNULL, token.NOTNULL:
+		return p.parseIsNull(left)
+
+	case token.NOT:
+		return p.parseNotOperator(left)
+
+	case token.BETWEEN:
+		return p.parseBetween(left, false)
+
+	case token.LIKE:
+		return p.parseLike(left, false)
+
+	case token.EQ, token.NOT_EQ, token.LT, token.GT, token.LTE, token.GTE:
+		return p.parseComparisonOperator(left)
+
+	default:
+		debugPrint("    [parseComparison] END: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return left
 	}
+}
 
-	// Handle NOT ... (including NOT BETWEEN)
-	if p.curToken.Type == token.NOT {
-		debugPrint("    [parseComparison] found NOT, checking next token\n")
-		tok := p.curToken
-		pos := p.position
-		p.nextToken() // consume NOT
+// parseIsNull menangani IS NULL / IS NOT NULL
+func (p *Parser) parseIsNull(left ASTNode) ASTNode {
+	debugPrint("    [parseIsNull] found IS NULL/NOT NULL: %s\n", p.curToken.Literal)
+	tok := p.curToken
+	p.nextToken()
 
-		// Check if next token is BETWEEN
-		if p.curToken.Type == token.BETWEEN {
-			debugPrint("    [parseComparison] found NOT BETWEEN\n")
-			p.nextToken() // consume BETWEEN
-
-			lower := p.parseAdditive()
-			if lower.Type == "" {
-				p.errors = append(p.errors,
-					fmt.Sprintf("expected lower bound in NOT BETWEEN expression at line %d", tok.Line))
-				return node
-			}
-
-			if p.curToken.Type != token.AND {
-				p.errors = append(p.errors,
-					fmt.Sprintf("expected AND in NOT BETWEEN expression, got %s at line %d",
-						p.curToken.Type, p.curToken.Line))
-				return node
-			}
-			p.nextToken()
-
-			upper := p.parseAdditive()
-			if upper.Type == "" {
-				p.errors = append(p.errors,
-					fmt.Sprintf("expected upper bound in NOT BETWEEN expression at line %d", tok.Line))
-				return node
-			}
-
-			// Buat BetweenNode dengan flag Not = true
-			betweenNode := NewASTNode(BetweenNode, "BETWEEN", tok.Line, tok.Column)
-			betweenNode.Not = true
-			betweenNode.AddChild(node)
-			betweenNode.AddChild(lower)
-			betweenNode.AddChild(upper)
-			betweenNode.Span = combineSpans(node, lower, upper)
-
-			debugPrint("    [parseComparison] returning NOT BETWEEN node\n")
-			return betweenNode
-		} else {
-			// Not NOT BETWEEN, rewind and handle as unary NOT
-			debugPrint("    [parseComparison] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
-			p.position = pos
-			p.curToken = p.tokens[p.position]
-
-			// Parse as unary NOT
-			tok = p.curToken
-			p.nextToken()
-			right := p.parseComparison()
-			if right.Type != "" {
-				unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
-				unaryNode.AddChild(right)
-				unaryNode.Span = combineSpan(
-					NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
-					right,
-				)
-				return unaryNode
-			}
-			return node
-		}
+	var nullNode ASTNode
+	if tok.Type == token.ISNULL {
+		nullNode = NewASTNode(IsNullNode, "IS NULL", tok.Line, tok.Column)
+	} else {
+		nullNode = NewASTNode(IsNotNullNode, "IS NOT NULL", tok.Line, tok.Column)
 	}
+	nullNode.AddChild(left)
+	nullNode.Span = combineSpan(left, nullNode)
+	debugPrint("    [parseIsNull] returning IS NULL/NOT NULL node\n")
+	return nullNode
+}
 
-	// Handle BETWEEN (regular, tanpa NOT)
-	if p.curToken.Type == token.BETWEEN {
-		debugPrint("    [parseComparison] found BETWEEN\n")
-		tok := p.curToken
+// parseNotOperator menangani NOT (termasuk NOT BETWEEN, NOT LIKE)
+func (p *Parser) parseNotOperator(left ASTNode) ASTNode {
+	debugPrint("    [parseNotOperator] found NOT, checking next token\n")
+	tok := p.curToken
+	pos := p.position
+	p.nextToken() // consume NOT
+
+	switch p.curToken.Type {
+	case token.BETWEEN:
+		debugPrint("    [parseNotOperator] found NOT BETWEEN\n")
+		return p.parseBetween(left, true)
+
+	case token.LIKE:
+		debugPrint("    [parseNotOperator] found NOT LIKE\n")
+		return p.parseLike(left, true)
+
+	default:
+		// Not NOT BETWEEN/LIKE, treat as unary NOT
+		debugPrint("    [parseNotOperator] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
+		p.position = pos
+		p.curToken = p.tokens[p.position]
+
+		tok = p.curToken
 		p.nextToken()
-
-		lower := p.parseAdditive()
-		if lower.Type == "" {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
-			return node
-		}
-
-		if p.curToken.Type != token.AND {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
-					p.curToken.Type, p.curToken.Line))
-			return node
-		}
-		p.nextToken()
-
-		upper := p.parseAdditive()
-		if upper.Type == "" {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
-			return node
-		}
-
-		betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
-		betweenNode.Not = false
-		betweenNode.AddChild(node)
-		betweenNode.AddChild(lower)
-		betweenNode.AddChild(upper)
-		betweenNode.Span = combineSpans(node, lower, upper)
-
-		debugPrint("    [parseComparison] returning BETWEEN node\n")
-		return betweenNode
-	}
-
-	// Handle regular comparison operators
-	if p.curToken.Type == token.EQ || p.curToken.Type == token.NOT_EQ ||
-		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
-		p.curToken.Type == token.LTE || p.curToken.Type == token.GTE {
-		debugPrint("    [parseComparison] found operator: %s\n", p.curToken.Literal)
-		tok := p.curToken
-		p.nextToken()
-		right := p.parseAdditive()
+		right := p.parseComparison()
 		if right.Type != "" {
-			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
-			compNode.AddChild(node)
-			compNode.AddChild(right)
-			compNode.Span = combineSpan(node, right)
-			debugPrint("    [parseComparison] returning comparison node\n")
-			return compNode
+			unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
+			unaryNode.AddChild(right)
+			unaryNode.Span = combineSpan(
+				NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+				right,
+			)
+			return unaryNode
 		}
+		return left
+	}
+}
+
+// parseBetween menangani BETWEEN / NOT BETWEEN
+func (p *Parser) parseBetween(left ASTNode, isNot bool) ASTNode {
+	debugPrint("    [parseBetween] parsing BETWEEN (not=%v)\n", isNot)
+	tok := p.curToken
+	if isNot {
+		p.nextToken() // consume BETWEEN (sudah di-consume di parseNotOperator)
+	} else {
+		p.nextToken() // consume BETWEEN
 	}
 
-	debugPrint("    [parseComparison] END: token=%s, literal='%s'\n",
-		p.curToken.Type, p.curToken.Literal)
+	lower := p.parseAdditive()
+	if lower.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
+		return left
+	}
 
-	return node
+	if p.curToken.Type != token.AND {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return left
+	}
+	p.nextToken()
+
+	upper := p.parseAdditive()
+	if upper.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
+		return left
+	}
+
+	betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
+	betweenNode.Not = isNot
+	betweenNode.AddChild(left)
+	betweenNode.AddChild(lower)
+	betweenNode.AddChild(upper)
+	betweenNode.Span = combineSpans(left, lower, upper)
+
+	debugPrint("    [parseBetween] returning BETWEEN node (not=%v)\n", isNot)
+	return betweenNode
+}
+
+// parseLike menangani LIKE / NOT LIKE
+func (p *Parser) parseLike(left ASTNode, isNot bool) ASTNode {
+	debugPrint("    [parseLike] parsing LIKE (not=%v)\n", isNot)
+	tok := p.curToken
+	if isNot {
+		p.nextToken() // consume LIKE (sudah di-consume di parseNotOperator)
+	} else {
+		p.nextToken() // consume LIKE
+	}
+
+	pattern := p.parseAdditive()
+	if pattern.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected pattern in LIKE expression at line %d", tok.Line))
+		return left
+	}
+
+	likeNode := NewASTNode(LikeNode, tok.Literal, tok.Line, tok.Column)
+	likeNode.Not = isNot
+	likeNode.AddChild(left)
+	likeNode.AddChild(pattern)
+	likeNode.Span = combineSpans(left, pattern)
+
+	debugPrint("    [parseLike] returning LIKE node (not=%v)\n", isNot)
+	return likeNode
+}
+
+// parseComparisonOperator menangani operator comparison biasa (=, <, >, dll)
+func (p *Parser) parseComparisonOperator(left ASTNode) ASTNode {
+	debugPrint("    [parseComparisonOperator] found operator: %s\n", p.curToken.Literal)
+	tok := p.curToken
+	p.nextToken()
+	right := p.parseAdditive()
+	if right.Type != "" {
+		compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
+		compNode.AddChild(left)
+		compNode.AddChild(right)
+		compNode.Span = combineSpan(left, right)
+		debugPrint("    [parseComparisonOperator] returning comparison node\n")
+		return compNode
+	}
+	return left
 }
 
 func (p *Parser) parseAdditive() ASTNode {

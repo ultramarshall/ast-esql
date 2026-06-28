@@ -50,7 +50,8 @@ const (
 	IsNullNode         NodeType = "IsNull"
 	IsNotNullNode      NodeType = "IsNotNull"
 	BetweenNode        NodeType = "Between"
-	ParenthesizedNode  NodeType = "Parenthesized" // Tambahkan ini
+	ParenthesizedNode  NodeType = "Parenthesized"
+	LikeNode           NodeType = "Like"
 )
 
 // Position represents a position in source code

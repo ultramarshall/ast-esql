@@ -210,7 +210,10 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 		for _, child := range node.Children {
 			a.analyzeNode(child)
 		}
-
+	case parser.LikeNode:
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
 	}
 
 	for _, child := range node.Children {

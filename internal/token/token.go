@@ -76,6 +76,7 @@ const (
 	ISNULL      = "ISNULL"
 	NOTNULL     = "NOTNULL"
 	BETWEEN     = "BETWEEN"
+	LIKE        = "LIKE"
 )
 
 type Token struct {
@@ -129,6 +130,7 @@ func LookupIdent(ident string) string {
 		"IS":          IS,
 		"NULL":        IDENTIFIER,
 		"BETWEEN":     BETWEEN,
+		"LIKE":        LIKE,
 	}
 	if tok, ok := keywords[ident]; ok {
 		return tok
