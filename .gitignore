@@ -1,0 +1,32 @@
+# Binary
+esql-ast
+esql-ast.exe
+
+# Test outputs
+tests/output/
+tests/diff/
+
+# But keep baseline
+!tests/baseline/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Go
+go.sum
+*.test
+coverage.out
+coverage.html
+
+# Temporary files
+/tmp/
+*.tmp
+*.log
