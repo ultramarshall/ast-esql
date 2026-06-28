@@ -21,6 +21,27 @@ type RefactorResult struct {
 	Stats       map[string]int
 }
 
+type RenameResult struct {
+	OldName     string
+	NewName     string
+	Occurrences int
+	Locations   []RenameLocation
+	Success     bool
+	Message     string
+}
+
+type RenameLocation struct {
+	Line    int
+	Column  int
+	OldText string
+	NewText string
+	Context string // "DECLARE", "SET", "CALL", etc.
+}
+
+// ============================================
+// SUGGEST
+// ============================================
+
 func Suggest(program parser.Program, analysisResult analyzer.AnalysisResult) RefactorResult {
 	var suggestions []Suggestion
 	stats := make(map[string]int)
@@ -101,6 +122,245 @@ func Suggest(program parser.Program, analysisResult analyzer.AnalysisResult) Ref
 	}
 }
 
+// ============================================
+// RENAME
+// ============================================
+
+func RenameVariable(program parser.Program, oldName, newName string, dryRun bool) RenameResult {
+	var locations []RenameLocation
+	occurrences := 0
+
+	// Traverse AST and find all occurrences of the variable
+	searchAndReplace(program.Statements, oldName, newName, &locations, &occurrences, "variable")
+
+	if occurrences == 0 {
+		return RenameResult{
+			OldName:     oldName,
+			NewName:     newName,
+			Occurrences: 0,
+			Locations:   locations,
+			Success:     false,
+			Message:     fmt.Sprintf("Variable '%s' not found", oldName),
+		}
+	}
+
+	return RenameResult{
+		OldName:     oldName,
+		NewName:     newName,
+		Occurrences: occurrences,
+		Locations:   locations,
+		Success:     true,
+		Message:     fmt.Sprintf("Renamed '%s' to '%s' in %d locations", oldName, newName, occurrences),
+	}
+}
+
+func RenameProcedure(program parser.Program, oldName, newName string, dryRun bool) RenameResult {
+	var locations []RenameLocation
+	occurrences := 0
+
+	searchAndReplace(program.Statements, oldName, newName, &locations, &occurrences, "procedure")
+
+	if occurrences == 0 {
+		return RenameResult{
+			OldName:     oldName,
+			NewName:     newName,
+			Occurrences: 0,
+			Locations:   locations,
+			Success:     false,
+			Message:     fmt.Sprintf("Procedure '%s' not found", oldName),
+		}
+	}
+
+	return RenameResult{
+		OldName:     oldName,
+		NewName:     newName,
+		Occurrences: occurrences,
+		Locations:   locations,
+		Success:     true,
+		Message:     fmt.Sprintf("Renamed procedure '%s' to '%s' in %d locations", oldName, newName, occurrences),
+	}
+}
+
+func RenameFunction(program parser.Program, oldName, newName string, dryRun bool) RenameResult {
+	var locations []RenameLocation
+	occurrences := 0
+
+	searchAndReplace(program.Statements, oldName, newName, &locations, &occurrences, "function")
+
+	if occurrences == 0 {
+		return RenameResult{
+			OldName:     oldName,
+			NewName:     newName,
+			Occurrences: 0,
+			Locations:   locations,
+			Success:     false,
+			Message:     fmt.Sprintf("Function '%s' not found", oldName),
+		}
+	}
+
+	return RenameResult{
+		OldName:     oldName,
+		NewName:     newName,
+		Occurrences: occurrences,
+		Locations:   locations,
+		Success:     true,
+		Message:     fmt.Sprintf("Renamed function '%s' to '%s' in %d locations", oldName, newName, occurrences),
+	}
+}
+
+// ============================================
+// SEARCH & REPLACE HELPERS
+// ============================================
+
+func searchAndReplace(nodes []parser.ASTNode, oldName, newName string, locations *[]RenameLocation, occurrences *int, targetType string) {
+	for _, node := range nodes {
+		switch node.Type {
+		case parser.IdentifierNode:
+			if val, ok := node.Value.(string); ok && val == oldName {
+				*occurrences++
+				context := getContext(node)
+				*locations = append(*locations, RenameLocation{
+					Line:    node.Span.Start.Line,
+					Column:  node.Span.Start.Column,
+					OldText: oldName,
+					NewText: newName,
+					Context: context,
+				})
+			}
+
+		case parser.DeclareNode:
+			// Check if this declares the variable
+			if targetType == "variable" && len(node.Children) > 0 {
+				if node.Children[0].Type == parser.IdentifierNode {
+					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
+						*occurrences++
+						*locations = append(*locations, RenameLocation{
+							Line:    node.Span.Start.Line,
+							Column:  node.Span.Start.Column,
+							OldText: oldName,
+							NewText: newName,
+							Context: "DECLARE",
+						})
+					}
+				}
+			}
+
+		case parser.FunctionNode:
+			if targetType == "function" && len(node.Children) > 0 {
+				if node.Children[0].Type == parser.IdentifierNode {
+					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
+						*occurrences++
+						*locations = append(*locations, RenameLocation{
+							Line:    node.Span.Start.Line,
+							Column:  node.Span.Start.Column,
+							OldText: oldName,
+							NewText: newName,
+							Context: "FUNCTION",
+						})
+					}
+				}
+			}
+
+		case parser.ProcedureNode:
+			if targetType == "procedure" && len(node.Children) > 0 {
+				if node.Children[0].Type == parser.IdentifierNode {
+					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
+						*occurrences++
+						*locations = append(*locations, RenameLocation{
+							Line:    node.Span.Start.Line,
+							Column:  node.Span.Start.Column,
+							OldText: oldName,
+							NewText: newName,
+							Context: "PROCEDURE",
+						})
+					}
+				}
+			}
+
+		case parser.CallNode:
+			if targetType == "procedure" && len(node.Children) > 0 {
+				if node.Children[0].Type == parser.IdentifierNode {
+					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
+						*occurrences++
+						*locations = append(*locations, RenameLocation{
+							Line:    node.Span.Start.Line,
+							Column:  node.Span.Start.Column,
+							OldText: oldName,
+							NewText: newName,
+							Context: "CALL",
+						})
+					}
+				}
+			}
+
+		case parser.FunctionCallNode:
+			if targetType == "function" {
+				if val, ok := node.Value.(string); ok && val == oldName {
+					*occurrences++
+					*locations = append(*locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "FUNCTION_CALL",
+					})
+				}
+			}
+		}
+
+		// Recursively search children
+		for _, child := range node.Children {
+			searchAndReplace([]parser.ASTNode{child}, oldName, newName, locations, occurrences, targetType)
+		}
+	}
+}
+
+func getContext(node parser.ASTNode) string {
+	// Try to determine context from parent
+	// For now, return simple context
+	return "USAGE"
+}
+
+// ============================================
+// FORMAT OUTPUT
+// ============================================
+
+func FormatRenameResult(result RenameResult, dryRun bool) string {
+	var sb strings.Builder
+
+	if !result.Success {
+		sb.WriteString(fmt.Sprintf("\n❌ %s\n", result.Message))
+		return sb.String()
+	}
+
+	if dryRun {
+		sb.WriteString("\n🔍 Dry Run - Preview changes:\n")
+		sb.WriteString(strings.Repeat("-", 40) + "\n\n")
+	} else {
+		sb.WriteString("\n✅ " + result.Message + "\n")
+		sb.WriteString(strings.Repeat("-", 40) + "\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("📝 Changes made (%d occurrences):\n", result.Occurrences))
+	for _, loc := range result.Locations {
+		sb.WriteString(fmt.Sprintf("  Line %d: %s → %s (%s)\n",
+			loc.Line, loc.OldText, loc.NewText, loc.Context))
+	}
+
+	if dryRun {
+		sb.WriteString(fmt.Sprintf("\n📊 %d changes will be made\n", result.Occurrences))
+		sb.WriteString("❌ No files were modified (dry-run mode)\n")
+	} else {
+		sb.WriteString(fmt.Sprintf("\n📊 %d changes applied\n", result.Occurrences))
+	}
+
+	return sb.String()
+}
+
+// ============================================
+// EXISTING HELPERS
+// ============================================
+
 func isUsed(usedVars []string, name string) bool {
 	for _, v := range usedVars {
 		if v == name {
@@ -129,7 +389,6 @@ func FormatSuggestions(result RefactorResult) string {
 	sb.WriteString("\n📊 Refactoring Suggestions\n")
 	sb.WriteString(strings.Repeat("=", 50) + "\n\n")
 
-	// Group by type
 	var deadCode, codeSmells, improvements []Suggestion
 	for _, s := range result.Suggestions {
 		switch s.Type {
@@ -219,4 +478,30 @@ func FormatDeadCode(result RefactorResult) string {
 	sb.WriteString(fmt.Sprintf("📊 Total dead code: %d items\n", len(deadCode)))
 
 	return sb.String()
+}
+
+func ApplyRenameChanges(originalContent string, result RenameResult) string {
+	lines := strings.Split(originalContent, "\n")
+
+	// Create a map of line -> replacements
+	replacements := make(map[int][]string)
+	for _, loc := range result.Locations {
+		// Replace old name with new name on that line
+		// Note: This is simplified; for production, use more precise replacement
+		oldLine := lines[loc.Line-1]
+		newLine := strings.ReplaceAll(oldLine, loc.OldText, loc.NewText)
+		if oldLine != newLine {
+			replacements[loc.Line-1] = append(replacements[loc.Line-1], newLine)
+		}
+	}
+
+	// Apply replacements
+	for lineNum, newLines := range replacements {
+		if len(newLines) > 0 {
+			// Use the last replacement (most complete)
+			lines[lineNum] = newLines[len(newLines)-1]
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }

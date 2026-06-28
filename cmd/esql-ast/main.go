@@ -26,7 +26,11 @@ func main() {
 		debug    = flag.Bool("debug", false, "Enable debug output")
 
 		// Refactoring flags
-		refactorCmd = flag.String("refactor", "", "Refactoring operation: suggest, dead-code")
+		refactorCmd = flag.String("refactor", "", "Refactoring operation: suggest, dead-code, rename")
+		refactorOld = flag.String("old", "", "Old name (for rename operations)")
+		refactorNew = flag.String("new", "", "New name (for rename operations)")
+		dryRun      = flag.Bool("dry-run", false, "Preview changes without applying")
+		apply       = flag.Bool("apply", false, "Apply refactoring changes to file")
 	)
 	flag.Parse()
 
@@ -201,11 +205,60 @@ func main() {
 			refactorResult := refactor.Suggest(program, analysisResult)
 			result += refactor.FormatDeadCode(refactorResult)
 
+		case "rename":
+			if *refactorOld == "" || *refactorNew == "" {
+				result += "\n❌ Please provide both -old and -new names\n"
+				result += "Usage: esql-ast -f file.esql -refactor rename -old <oldName> -new <newName>\n"
+			} else {
+				// Try variable rename first, then procedure, then function
+				renameResult := refactor.RenameVariable(program, *refactorOld, *refactorNew, *dryRun)
+				if !renameResult.Success {
+					renameResult = refactor.RenameProcedure(program, *refactorOld, *refactorNew, *dryRun)
+				}
+				if !renameResult.Success {
+					renameResult = refactor.RenameFunction(program, *refactorOld, *refactorNew, *dryRun)
+				}
+				result += refactor.FormatRenameResult(renameResult, *dryRun)
+
+				// Apply changes if -apply is set and not dry-run
+				if *apply && !*dryRun && renameResult.Success {
+					newContent := refactor.ApplyRenameChanges(input, renameResult)
+					if *output != "" {
+						err := os.WriteFile(*output, []byte(newContent), 0644)
+						if err != nil {
+							result += fmt.Sprintf("\n❌ Error writing to output file: %v\n", err)
+						} else {
+							result += fmt.Sprintf("\n✅ Changes saved to: %s\n", *output)
+						}
+					} else if *file != "" {
+						// Backup original
+						backupFile := *file + ".bak"
+						err := os.WriteFile(backupFile, []byte(input), 0644)
+						if err != nil {
+							result += fmt.Sprintf("\n⚠️ Could not create backup: %v\n", err)
+						} else {
+							result += fmt.Sprintf("\n📁 Backup saved to: %s\n", backupFile)
+						}
+
+						// Write changes
+						err = os.WriteFile(*file, []byte(newContent), 0644)
+						if err != nil {
+							result += fmt.Sprintf("\n❌ Error writing to file: %v\n", err)
+						} else {
+							result += fmt.Sprintf("\n✅ File updated: %s\n", *file)
+						}
+					}
+				} else if *apply && renameResult.Success {
+					result += "\n💡 Dry-run mode: changes not applied. Remove -dry-run to apply.\n"
+				}
+			}
+
 		default:
 			result += fmt.Sprintf("\n❌ Unknown refactor operation: %s\n", *refactorCmd)
 			result += "Available operations:\n"
 			result += "  suggest     - Show refactoring suggestions\n"
 			result += "  dead-code   - Show dead code analysis\n"
+			result += "  rename      - Rename variable/procedure/function\n"
 		}
 	}
 
@@ -223,7 +276,7 @@ func main() {
 		}
 	}
 
-	if *output != "" {
+	if *output != "" && *refactorCmd != "rename" {
 		err := os.WriteFile(*output, []byte(result), 0644)
 		if err != nil {
 			fmt.Printf("Error writing output: %v\n", err)
