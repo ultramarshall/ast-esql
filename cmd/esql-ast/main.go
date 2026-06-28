@@ -10,6 +10,7 @@ import (
 	"esql-ast-tool/pkg/generator"
 	"esql-ast-tool/pkg/parser"
 	"esql-ast-tool/pkg/printer"
+	"esql-ast-tool/pkg/refactor"
 )
 
 func main() {
@@ -23,6 +24,9 @@ func main() {
 		generate = flag.Bool("generate", false, "Generate ESQL code from AST")
 		output   = flag.String("o", "", "Output file")
 		debug    = flag.Bool("debug", false, "Enable debug output")
+
+		// Refactoring flags
+		refactorCmd = flag.String("refactor", "", "Refactoring operation: suggest, dead-code")
 	)
 	flag.Parse()
 
@@ -89,7 +93,6 @@ func main() {
 
 		if len(analysisResult.Variables) > 0 {
 			result += "\nVariables:\n"
-			// Sort variable names for consistent output
 			var varNames []string
 			for name := range analysisResult.Variables {
 				varNames = append(varNames, name)
@@ -103,7 +106,6 @@ func main() {
 
 		if len(analysisResult.Functions) > 0 {
 			result += "\nFunctions:\n"
-			// Sort function names for consistent output
 			var funcNames []string
 			for name := range analysisResult.Functions {
 				funcNames = append(funcNames, name)
@@ -128,7 +130,6 @@ func main() {
 			}
 		}
 
-		// Call Graph - sorted
 		if len(analysisResult.CallGraph) > 0 {
 			result += "\n=== Call Graph (Caller -> Callees) ===\n"
 			var callers []string
@@ -142,7 +143,6 @@ func main() {
 			}
 		}
 
-		// Reverse Call Graph - sorted
 		if len(analysisResult.ReverseCallGraph) > 0 {
 			result += "\n=== Reverse Call Graph (Callee -> Callers) ===\n"
 			var callees []string
@@ -156,7 +156,6 @@ func main() {
 			}
 		}
 
-		// Impact Analysis - sorted by key
 		if len(analysisResult.ImpactMap) > 0 {
 			result += "\n=== Impact Analysis (Change X -> Affects Y) ===\n"
 			var keys []string
@@ -170,7 +169,6 @@ func main() {
 			}
 		}
 
-		// Module Info
 		if analysisResult.ModuleInfo.Name != "" {
 			result += "\n=== Module Info ===\n"
 			result += fmt.Sprintf("  Name: %s\n", analysisResult.ModuleInfo.Name)
@@ -184,6 +182,30 @@ func main() {
 			if len(analysisResult.ModuleInfo.Variables) > 0 {
 				result += fmt.Sprintf("  Variables: %v\n", analysisResult.ModuleInfo.Variables)
 			}
+		}
+	}
+
+	// ============================================
+	// REFACTORING
+	// ============================================
+	if *refactorCmd != "" {
+		an := analyzer.NewAnalyzer()
+		analysisResult := an.Analyze(program)
+
+		switch *refactorCmd {
+		case "suggest":
+			refactorResult := refactor.Suggest(program, analysisResult)
+			result += refactor.FormatSuggestions(refactorResult)
+
+		case "dead-code":
+			refactorResult := refactor.Suggest(program, analysisResult)
+			result += refactor.FormatDeadCode(refactorResult)
+
+		default:
+			result += fmt.Sprintf("\n❌ Unknown refactor operation: %s\n", *refactorCmd)
+			result += "Available operations:\n"
+			result += "  suggest     - Show refactoring suggestions\n"
+			result += "  dead-code   - Show dead code analysis\n"
 		}
 	}
 
