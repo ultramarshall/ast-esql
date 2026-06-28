@@ -592,8 +592,9 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 	// ============================================
 	// 3. Manual scan for ALL CALLs and FunctionCalls
 	// ============================================
-	callGraph := make(map[string][]string)
-	reverseCallGraph := make(map[string][]string)
+	callGraph, reverseCallGraph := BuildCallGraph(program)
+	mergedCallGraph := callGraph
+	mergedReverseCallGraph := reverseCallGraph
 
 	var scanCalls func(node parser.ASTNode, inProcedure bool, currentProc string)
 	scanCalls = func(node parser.ASTNode, inProcedure bool, currentProc string) {
@@ -654,10 +655,6 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 	for _, stmt := range program.Statements {
 		scanCalls(stmt, false, "")
 	}
-
-	// Use manual scan results (ignore analysisResult.CallGraph)
-	mergedCallGraph := callGraph
-	mergedReverseCallGraph := reverseCallGraph
 
 	// 4. Procedures
 	for name, info := range analysisResult.Procedures {
@@ -837,4 +834,463 @@ func FormatExplanation(result ExplanationResult) string {
 	}
 
 	return sb.String()
+}
+
+// ============================================
+// SEARCH FUNCTIONS
+// ============================================
+
+type SearchResult struct {
+	Query      string        `json:"query"`
+	Type       string        `json:"type"`
+	Matches    []SearchMatch `json:"matches"`
+	TotalCount int           `json:"totalCount"`
+	Message    string        `json:"message"`
+}
+
+type SearchMatch struct {
+	Name     string `json:"name"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+	Context  string `json:"context"`
+	FullText string `json:"fullText"`
+}
+
+// SearchProcedure finds all occurrences of a procedure (definition and calls)
+func SearchProcedure(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// Check procedure definition
+		if node.Type == parser.ProcedureNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "PROCEDURE",
+						FullText: fmt.Sprintf("CREATE PROCEDURE %s()", val),
+					})
+				}
+			}
+		}
+
+		// Check CALL statements
+		if node.Type == parser.CallNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "CALL",
+						FullText: fmt.Sprintf("CALL %s()", val),
+					})
+				}
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "procedure",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("Procedure '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "procedure",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d occurrence(s) of procedure '%s'", len(matches), name),
+	}
+}
+
+// SearchFunction finds all occurrences of a function (definition and calls)
+func SearchFunction(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// Check function definition
+		if node.Type == parser.FunctionNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					returnType := "UNKNOWN"
+					if len(node.Children) > 1 && node.Children[1].Type == parser.IdentifierNode {
+						if v, ok := node.Children[1].Value.(string); ok {
+							returnType = v
+						}
+					}
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "FUNCTION",
+						FullText: fmt.Sprintf("CREATE FUNCTION %s() RETURNS %s", val, returnType),
+					})
+				}
+			}
+		}
+
+		// Check function calls
+		if node.Type == parser.FunctionCallNode {
+			if val, ok := node.Value.(string); ok && val == name {
+				matches = append(matches, SearchMatch{
+					Name:     val,
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+					Context:  "FUNCTION_CALL",
+					FullText: fmt.Sprintf("%s()", val),
+				})
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "function",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("Function '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "function",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d occurrence(s) of function '%s'", len(matches), name),
+	}
+}
+
+// SearchVariable finds all occurrences of a variable (declaration and usage)
+func SearchVariable(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// Check variable declaration
+		if node.Type == parser.DeclareNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					varType := "UNKNOWN"
+					if len(node.Children) > 1 && node.Children[1].Type == parser.IdentifierNode {
+						if v, ok := node.Children[1].Value.(string); ok {
+							varType = v
+						}
+					}
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "DECLARE",
+						FullText: fmt.Sprintf("DECLARE %s %s", val, varType),
+					})
+				}
+			}
+		}
+
+		// Check identifier usage
+		if node.Type == parser.IdentifierNode {
+			if val, ok := node.Value.(string); ok && val == name {
+				// Avoid duplicate if it's the declaration itself (already handled)
+				// Check if parent is not DeclareNode
+				// Simple: we just add usage
+				matches = append(matches, SearchMatch{
+					Name:     val,
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+					Context:  "USAGE",
+					FullText: val,
+				})
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	// Remove duplicates (same line and column)
+	unique := make(map[string]SearchMatch)
+	for _, m := range matches {
+		key := fmt.Sprintf("%d:%d", m.Line, m.Column)
+		unique[key] = m
+	}
+	var deduped []SearchMatch
+	for _, m := range unique {
+		deduped = append(deduped, m)
+	}
+	// Sort by line
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].Line < deduped[j].Line
+	})
+
+	if len(deduped) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "variable",
+			Matches:    deduped,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("Variable '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "variable",
+		Matches:    deduped,
+		TotalCount: len(deduped),
+		Message:    fmt.Sprintf("Found %d occurrence(s) of variable '%s'", len(deduped), name),
+	}
+}
+
+// SearchCall finds all CALL statements to a specific procedure
+func SearchCall(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		if node.Type == parser.CallNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				var callee string
+				if v, ok := node.Children[0].Value.(string); ok {
+					callee = v
+				} else if node.Children[0].Token != "" {
+					callee = node.Children[0].Token
+				}
+				if callee == name {
+					matches = append(matches, SearchMatch{
+						Name:     callee,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "CALL",
+						FullText: fmt.Sprintf("CALL %s()", callee),
+					})
+				}
+			}
+		}
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "call",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("CALL to '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "call",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d CALL(s) to '%s'", len(matches), name),
+	}
+}
+
+// SearchUnused finds all unused code (procedures, functions, variables)
+func SearchUnused(program parser.Program, analysisResult analyzer.AnalysisResult) SearchResult {
+	var matches []SearchMatch
+
+	// Build call graph to detect used procedures/functions
+	_, reverseCallGraph := BuildCallGraph(program)
+
+	// Check unused procedures
+	for name, info := range analysisResult.Procedures {
+		if _, ok := reverseCallGraph[name]; !ok {
+			matches = append(matches, SearchMatch{
+				Name:     name,
+				Line:     info.Line,
+				Column:   0,
+				Context:  "PROCEDURE (unused)",
+				FullText: fmt.Sprintf("CREATE PROCEDURE %s()", name),
+			})
+		}
+	}
+
+	// Check unused functions
+	for name, info := range analysisResult.Functions {
+		if _, ok := reverseCallGraph[name]; !ok && info.ReturnType != "BUILTIN" {
+			matches = append(matches, SearchMatch{
+				Name:     name,
+				Line:     info.Line,
+				Column:   0,
+				Context:  "FUNCTION (unused)",
+				FullText: fmt.Sprintf("CREATE FUNCTION %s()", name),
+			})
+		}
+	}
+
+	// Check unused variables
+	usedVars := make(map[string]bool)
+	for _, v := range analysisResult.UsedVariables {
+		usedVars[v] = true
+	}
+	for name, info := range analysisResult.Variables {
+		if !usedVars[name] {
+			matches = append(matches, SearchMatch{
+				Name:     name,
+				Line:     info.Line,
+				Column:   0,
+				Context:  "VARIABLE (unused)",
+				FullText: fmt.Sprintf("DECLARE %s %s", name, info.Type),
+			})
+		}
+	}
+
+	// Sort by line
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Line < matches[j].Line
+	})
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Type:       "unused",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    "No unused code found",
+		}
+	}
+
+	return SearchResult{
+		Type:       "unused",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d unused item(s)", len(matches)),
+	}
+}
+
+// FormatSearchResult formats a SearchResult for human-readable output
+func FormatSearchResult(result SearchResult) string {
+	var sb strings.Builder
+
+	if result.TotalCount == 0 {
+		sb.WriteString(fmt.Sprintf("\n🔍 Search Result: %s\n", result.Message))
+		return sb.String()
+	}
+
+	sb.WriteString(fmt.Sprintf("\n🔍 Search Result: %s\n", result.Message))
+	sb.WriteString(strings.Repeat("=", 50) + "\n\n")
+
+	for _, match := range result.Matches {
+		sb.WriteString(fmt.Sprintf("  Line %d: %s (%s)\n", match.Line, match.FullText, match.Context))
+	}
+
+	sb.WriteString(fmt.Sprintf("\n📊 Total: %d match(es)\n", result.TotalCount))
+	return sb.String()
+}
+
+func BuildCallGraph(program parser.Program) (map[string][]string, map[string][]string) {
+	callGraph := make(map[string][]string)
+	reverseCallGraph := make(map[string][]string)
+
+	var scan func(node parser.ASTNode, inProcedure bool, currentProc string)
+	scan = func(node parser.ASTNode, inProcedure bool, currentProc string) {
+		// Handle CallNode
+		if node.Type == parser.CallNode {
+			var callee string
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if v, ok := node.Children[0].Value.(string); ok {
+					callee = v
+				} else if node.Children[0].Token != "" {
+					callee = node.Children[0].Token
+				}
+			}
+			if callee != "" {
+				caller := "MAIN"
+				if inProcedure && currentProc != "" {
+					caller = currentProc
+				}
+				// ✅ HARUS pakai '=', BUKAN ':='
+				callGraph[caller] = append(callGraph[caller], callee)
+				reverseCallGraph[callee] = append(reverseCallGraph[callee], caller)
+			}
+		}
+
+		// Handle FunctionCallNode
+		if node.Type == parser.FunctionCallNode {
+			var callee string
+			if v, ok := node.Value.(string); ok {
+				callee = v
+			}
+			if callee != "" {
+				caller := "MAIN"
+				if inProcedure && currentProc != "" {
+					caller = currentProc
+				}
+				// ✅ HARUS pakai '=', BUKAN ':='
+				callGraph[caller] = append(callGraph[caller], callee)
+				reverseCallGraph[callee] = append(reverseCallGraph[callee], caller)
+			}
+		}
+
+		// Track procedure entry
+		if node.Type == parser.ProcedureNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if name, ok := node.Children[0].Value.(string); ok {
+					for _, child := range node.Children {
+						scan(child, true, name)
+					}
+					return
+				}
+			}
+		}
+
+		// Scan function children
+		if node.Type == parser.FunctionNode {
+			for _, child := range node.Children {
+				scan(child, inProcedure, currentProc)
+			}
+			return
+		}
+
+		for _, child := range node.Children {
+			scan(child, inProcedure, currentProc)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		scan(stmt, false, "")
+	}
+
+	return callGraph, reverseCallGraph
 }

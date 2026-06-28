@@ -32,7 +32,9 @@ func main() {
 		dryRun      = flag.Bool("dry-run", false, "Preview changes without applying")
 		apply       = flag.Bool("apply", false, "Apply refactoring changes to file")
 
-		explain = flag.Bool("explain", false, "Explain the code in natural language")
+		explain    = flag.Bool("explain", false, "Explain the code in natural language")
+		search     = flag.String("search", "", "Search type: procedure, function, variable, call, unused")
+		searchName = flag.String("search-name", "", "Name to search for")
 	)
 	flag.Parse()
 
@@ -191,9 +193,54 @@ func main() {
 		}
 	}
 
-	// ============================================
+	// SEARCH
+	if *search != "" {
+		an := analyzer.NewAnalyzer()
+		analysisResult := an.Analyze(program)
+		var searchResult refactor.SearchResult
+
+		switch *search {
+		case "procedure":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for procedure search\n"
+			} else {
+				searchResult = refactor.SearchProcedure(program, *searchName)
+			}
+		case "function":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for function search\n"
+			} else {
+				searchResult = refactor.SearchFunction(program, *searchName)
+			}
+		case "variable":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for variable search\n"
+			} else {
+				searchResult = refactor.SearchVariable(program, *searchName)
+			}
+		case "call":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for call search\n"
+			} else {
+				searchResult = refactor.SearchCall(program, *searchName)
+			}
+		case "unused":
+			searchResult = refactor.SearchUnused(program, analysisResult)
+		default:
+			result += fmt.Sprintf("\n❌ Unknown search type: %s\n", *search)
+			result += "Available search types:\n"
+			result += "  procedure   - Search for procedure\n"
+			result += "  function    - Search for function\n"
+			result += "  variable    - Search for variable\n"
+			result += "  call        - Search for CALL statements\n"
+			result += "  unused      - Find all unused code\n"
+		}
+
+		if searchResult.TotalCount > 0 || searchResult.Message != "" {
+			result += refactor.FormatSearchResult(searchResult)
+		}
+	}
 	// REFACTORING
-	// ============================================
 	if *refactorCmd != "" {
 		an := analyzer.NewAnalyzer()
 		analysisResult := an.Analyze(program)
