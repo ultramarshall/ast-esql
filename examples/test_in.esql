@@ -1,0 +1,36 @@
+CREATE COMPUTE MODULE TestIn
+    DECLARE score INTEGER;
+    DECLARE result INTEGER;
+    DECLARE status STRING;
+    
+    SET score = 85;
+    
+    -- Basic IN
+    IF score IN (80, 90, 100) THEN
+        SET result = 1;
+    END IF;
+    
+    -- NOT IN
+    IF score NOT IN (1, 2, 3) THEN
+        SET result = 2;
+    END IF;
+    
+    -- IN with strings
+    DECLARE name STRING;
+    SET name = 'John';
+    IF name IN ('John', 'Jane', 'Bob') THEN
+        SET result = 3;
+    END IF;
+    
+    -- IN in CASE
+    SET status = CASE 
+        WHEN score IN (90, 100) THEN 'Excellent'
+        WHEN score IN (70, 80) THEN 'Good'
+        ELSE 'Average'
+    END;
+    
+    -- Nested IN with expressions
+    IF (score + 5) IN (85, 90, 95) THEN
+        SET result = 4;
+    END IF;
+END MODULE;

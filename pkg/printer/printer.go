@@ -141,6 +141,14 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		} else {
 			displayName = "Like"
 		}
+
+	case parser.InNode:
+		if node.Not {
+			displayName = "In (NOT)"
+		} else {
+			displayName = "In"
+		}
+
 	}
 
 	spanStr := node.Span.String()

@@ -132,12 +132,13 @@ func (p *Parser) parseComparisonSuffix(left ASTNode) ASTNode {
 	case token.LIKE:
 		return p.parseLike(left, false)
 
+	case token.IN: // ← Tambahkan ini
+		return p.parseIn(left, false)
+
 	case token.EQ, token.NOT_EQ, token.LT, token.GT, token.LTE, token.GTE:
 		return p.parseComparisonOperator(left)
 
 	default:
-		debugPrint("    [parseComparison] END: token=%s, literal='%s'\n",
-			p.curToken.Type, p.curToken.Literal)
 		return left
 	}
 }
@@ -176,8 +177,12 @@ func (p *Parser) parseNotOperator(left ASTNode) ASTNode {
 		debugPrint("    [parseNotOperator] found NOT LIKE\n")
 		return p.parseLike(left, true)
 
+	case token.IN: // ← Tambahkan ini
+		debugPrint("    [parseNotOperator] found NOT IN\n")
+		return p.parseIn(left, true)
+
 	default:
-		// Not NOT BETWEEN/LIKE, treat as unary NOT
+		// Not NOT BETWEEN/LIKE/IN, treat as unary NOT
 		debugPrint("    [parseNotOperator] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
 		p.position = pos
 		p.curToken = p.tokens[p.position]
@@ -371,4 +376,64 @@ func (p *Parser) parseUnary() ASTNode {
 	debugPrint("    [parseUnary] END (primary): token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 	return result
+}
+
+func (p *Parser) parseIn(left ASTNode, isNot bool) ASTNode {
+	debugPrint("    [parseIn] parsing IN (not=%v)\n", isNot)
+	tok := p.curToken
+	if isNot {
+		p.nextToken() // consume IN (sudah di-consume di parseNotOperator)
+	} else {
+		p.nextToken() // consume IN
+	}
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after IN expression at line %d", tok.Line))
+		return left
+	}
+	p.nextToken() // consume '('
+
+	// Parse list of values
+	var values []ASTNode
+	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
+		val := p.parseExpression()
+		if val.Type != "" {
+			values = append(values, val)
+		}
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in IN expression at line %d", tok.Line))
+		return left
+	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
+	p.nextToken() // consume ')'
+
+	// Buat InNode
+	inNode := NewASTNode(InNode, tok.Literal, tok.Line, tok.Column)
+	inNode.Not = isNot
+	inNode.AddChild(left)
+
+	// Tambahkan semua values sebagai children
+	for _, val := range values {
+		inNode.AddChild(val)
+	}
+
+	// Span dari left sampai akhir ')'
+	if len(values) > 0 {
+		inNode.Span = combineSpans(append([]ASTNode{left}, values...)...)
+		inNode.Span.End = Position{Line: endLine, Column: endCol}
+	} else {
+		inNode.Span = combineSpan(left, inNode)
+	}
+
+	debugPrint("    [parseIn] returning IN node (not=%v, values=%d)\n", isNot, len(values))
+	return inNode
 }

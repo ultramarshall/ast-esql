@@ -129,6 +129,24 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		}
 		return "LIKE"
 
+	case parser.InNode:
+		if len(node.Children) < 2 {
+			return "IN"
+		}
+		expr := g.generateNode(node.Children[0], 0)
+		var values []string
+		for i := 1; i < len(node.Children); i++ {
+			values = append(values, g.generateNode(node.Children[i], 0))
+		}
+		result := expr
+		if node.Not {
+			result += " NOT IN"
+		} else {
+			result += " IN"
+		}
+		result += " (" + strings.Join(values, ", ") + ")"
+		return result
+
 	default:
 		var sb strings.Builder
 		if node.Token != "" {
