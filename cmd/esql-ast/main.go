@@ -31,6 +31,8 @@ func main() {
 		refactorNew = flag.String("new", "", "New name (for rename operations)")
 		dryRun      = flag.Bool("dry-run", false, "Preview changes without applying")
 		apply       = flag.Bool("apply", false, "Apply refactoring changes to file")
+
+		explain = flag.Bool("explain", false, "Explain the code in natural language")
 	)
 	flag.Parse()
 
@@ -274,6 +276,13 @@ func main() {
 		} else {
 			result += "  No issues found\n"
 		}
+	}
+
+	if *explain {
+		an := analyzer.NewAnalyzer()
+		analysisResult := an.Analyze(program)
+		explanationResult := refactor.Explain(program, analysisResult)
+		result += refactor.FormatExplanation(explanationResult)
 	}
 
 	if *output != "" && *refactorCmd != "rename" {

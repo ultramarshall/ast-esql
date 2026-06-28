@@ -2,6 +2,7 @@ package refactor
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"esql-ast-tool/pkg/analyzer"
@@ -504,4 +505,336 @@ func ApplyRenameChanges(originalContent string, result RenameResult) string {
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// ============================================
+// Helper Functions
+// ============================================
+
+// appendUnique appends item to slice if not already present.
+func appendUnique(slice []string, item string) []string {
+	for _, s := range slice {
+		if s == item {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
+
+// ============================================
+// EXPLAIN - Natural Language Explanation
+// ============================================
+
+type ExplanationResult struct {
+	ModuleName  string
+	Variables   []VariableInfo
+	Procedures  []ProcedureInfo
+	Functions   []FunctionInfo
+	CallFlow    []string
+	Summary     string
+	Warnings    []string
+	Suggestions []string
+}
+
+type VariableInfo struct {
+	Name string
+	Type string
+	Line int
+}
+
+type ProcedureInfo struct {
+	Name     string
+	Line     int
+	Calls    []string
+	IsCalled bool
+}
+
+type FunctionInfo struct {
+	Name       string
+	Line       int
+	ReturnType string
+	IsCalled   bool
+}
+
+func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) ExplanationResult {
+	var result ExplanationResult
+
+	// 1. Extract module name
+	for _, stmt := range program.Statements {
+		if stmt.Type == parser.CreateNode {
+			for _, child := range stmt.Children {
+				if child.Type == parser.ModuleNode {
+					if len(child.Children) > 0 && child.Children[0].Type == parser.IdentifierNode {
+						if name, ok := child.Children[0].Value.(string); ok {
+							result.ModuleName = name
+						}
+					}
+				}
+			}
+		}
+	}
+	if result.ModuleName == "" {
+		result.ModuleName = "Unnamed"
+	}
+
+	// 2. Variables
+	for name, info := range analysisResult.Variables {
+		result.Variables = append(result.Variables, VariableInfo{
+			Name: name,
+			Type: info.Type,
+			Line: info.Line,
+		})
+	}
+	sort.Slice(result.Variables, func(i, j int) bool {
+		return result.Variables[i].Name < result.Variables[j].Name
+	})
+
+	// ============================================
+	// 3. Manual scan for ALL CALLs and FunctionCalls
+	// ============================================
+	callGraph := make(map[string][]string)
+	reverseCallGraph := make(map[string][]string)
+
+	var scanCalls func(node parser.ASTNode, inProcedure bool, currentProc string)
+	scanCalls = func(node parser.ASTNode, inProcedure bool, currentProc string) {
+		// Handle CallNode
+		if node.Type == parser.CallNode {
+			var callee string
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if v, ok := node.Children[0].Value.(string); ok {
+					callee = v
+				} else if node.Children[0].Token != "" {
+					callee = node.Children[0].Token
+				}
+			}
+			if callee != "" {
+				caller := "MAIN"
+				if inProcedure && currentProc != "" {
+					caller = currentProc
+				}
+				callGraph[caller] = appendUnique(callGraph[caller], callee)
+				reverseCallGraph[callee] = appendUnique(reverseCallGraph[callee], caller)
+			}
+		}
+
+		// Handle FunctionCallNode (e.g., FuncA())
+		if node.Type == parser.FunctionCallNode {
+			var callee string
+			if v, ok := node.Value.(string); ok {
+				callee = v
+			}
+			if callee != "" {
+				caller := "MAIN"
+				if inProcedure && currentProc != "" {
+					caller = currentProc
+				}
+				callGraph[caller] = appendUnique(callGraph[caller], callee)
+				reverseCallGraph[callee] = appendUnique(reverseCallGraph[callee], caller)
+			}
+		}
+
+		// Handle ProcedureNode: enter procedure scope
+		if node.Type == parser.ProcedureNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if name, ok := node.Children[0].Value.(string); ok {
+					for _, child := range node.Children {
+						scanCalls(child, true, name)
+					}
+					return
+				}
+			}
+		}
+
+		// Recurse into children
+		for _, child := range node.Children {
+			scanCalls(child, inProcedure, currentProc)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		scanCalls(stmt, false, "")
+	}
+
+	// Use manual scan results (ignore analysisResult.CallGraph)
+	mergedCallGraph := callGraph
+	mergedReverseCallGraph := reverseCallGraph
+
+	// 4. Procedures
+	for name, info := range analysisResult.Procedures {
+		proc := ProcedureInfo{
+			Name:     name,
+			Line:     info.Line,
+			IsCalled: false,
+			Calls:    []string{},
+		}
+		if callers, ok := mergedReverseCallGraph[name]; ok && len(callers) > 0 {
+			for _, caller := range callers {
+				if caller == "MAIN" || caller != "" {
+					proc.IsCalled = true
+					break
+				}
+			}
+		}
+		if callees, ok := mergedCallGraph[name]; ok {
+			proc.Calls = callees
+		}
+		result.Procedures = append(result.Procedures, proc)
+	}
+	sort.Slice(result.Procedures, func(i, j int) bool {
+		return result.Procedures[i].Name < result.Procedures[j].Name
+	})
+
+	// 5. Functions
+	for name, info := range analysisResult.Functions {
+		funcInfo := FunctionInfo{
+			Name:       name,
+			Line:       info.Line,
+			ReturnType: info.ReturnType,
+			IsCalled:   false,
+		}
+		if callers, ok := mergedReverseCallGraph[name]; ok && len(callers) > 0 {
+			for _, caller := range callers {
+				if caller == "MAIN" || caller != "" {
+					funcInfo.IsCalled = true
+					break
+				}
+			}
+		}
+		result.Functions = append(result.Functions, funcInfo)
+	}
+	sort.Slice(result.Functions, func(i, j int) bool {
+		return result.Functions[i].Name < result.Functions[j].Name
+	})
+
+	// 6. Call Flow
+	if len(mergedCallGraph) > 0 {
+		var callers []string
+		for caller := range mergedCallGraph {
+			callers = append(callers, caller)
+		}
+		sort.Strings(callers)
+		for _, caller := range callers {
+			callees := mergedCallGraph[caller]
+			sort.Strings(callees)
+			for _, callee := range callees {
+				if caller == "MAIN" {
+					result.CallFlow = append(result.CallFlow, fmt.Sprintf("(main) → %s", callee))
+				} else {
+					result.CallFlow = append(result.CallFlow, fmt.Sprintf("%s → %s", caller, callee))
+				}
+			}
+		}
+	}
+
+	// 7. Summary
+	result.Summary = fmt.Sprintf("Module '%s' contains %d variables, %d procedures, and %d functions.",
+		result.ModuleName, len(result.Variables), len(result.Procedures), len(result.Functions))
+
+	// 8. Warnings
+	for _, proc := range result.Procedures {
+		if !proc.IsCalled {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Procedure '%s' is never called (line %d)", proc.Name, proc.Line))
+		}
+	}
+	for _, fn := range result.Functions {
+		if !fn.IsCalled && fn.ReturnType != "BUILTIN" {
+			result.Warnings = append(result.Warnings, fmt.Sprintf("Function '%s' is never called (line %d)", fn.Name, fn.Line))
+		}
+	}
+	sort.Strings(result.Warnings)
+
+	// 9. Suggestions
+	processed := make(map[string]bool)
+	for _, proc := range result.Procedures {
+		if processed[proc.Name] {
+			continue
+		}
+		processed[proc.Name] = true
+
+		if !proc.IsCalled {
+			result.Suggestions = append(result.Suggestions, fmt.Sprintf("Consider removing or using procedure '%s'", proc.Name))
+		}
+		if calls, ok := mergedCallGraph[proc.Name]; ok && len(calls) == 1 {
+			result.Suggestions = append(result.Suggestions,
+				fmt.Sprintf("Procedure '%s' only calls one other procedure (%s), consider inlining",
+					proc.Name, calls[0]))
+		}
+	}
+	sort.Strings(result.Suggestions)
+
+	return result
+}
+
+// FormatExplanation returns a human-readable string from ExplanationResult.
+func FormatExplanation(result ExplanationResult) string {
+	var sb strings.Builder
+
+	sb.WriteString("\n📖 Code Explanation\n")
+	sb.WriteString(strings.Repeat("=", 50) + "\n\n")
+
+	sb.WriteString(fmt.Sprintf("📦 Module: %s\n\n", result.ModuleName))
+
+	if len(result.Variables) > 0 {
+		sb.WriteString("📊 Variables:\n")
+		for _, v := range result.Variables {
+			sb.WriteString(fmt.Sprintf("  - %s: %s (line %d)\n", v.Name, v.Type, v.Line))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(result.Procedures) > 0 {
+		sb.WriteString("🔧 Procedures:\n")
+		for _, p := range result.Procedures {
+			called := "❌ unused"
+			if p.IsCalled {
+				called = "✅ used"
+			}
+			sb.WriteString(fmt.Sprintf("  - %s (line %d) [%s]\n", p.Name, p.Line, called))
+			if len(p.Calls) > 0 {
+				sb.WriteString(fmt.Sprintf("    → Calls: %v\n", p.Calls))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(result.Functions) > 0 {
+		sb.WriteString("⚡ Functions:\n")
+		for _, f := range result.Functions {
+			called := "❌ unused"
+			if f.IsCalled {
+				called = "✅ used"
+			}
+			sb.WriteString(fmt.Sprintf("  - %s: %s (line %d) [%s]\n", f.Name, f.ReturnType, f.Line, called))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(result.CallFlow) > 0 {
+		sb.WriteString("🔄 Call Flow:\n")
+		for _, flow := range result.CallFlow {
+			sb.WriteString(fmt.Sprintf("  %s\n", flow))
+		}
+		sb.WriteString("\n")
+	}
+
+	sb.WriteString("📝 Summary:\n")
+	sb.WriteString(fmt.Sprintf("  %s\n\n", result.Summary))
+
+	if len(result.Warnings) > 0 {
+		sb.WriteString("⚠️ Warnings:\n")
+		for _, w := range result.Warnings {
+			sb.WriteString(fmt.Sprintf("  - %s\n", w))
+		}
+		sb.WriteString("\n")
+	}
+
+	if len(result.Suggestions) > 0 {
+		sb.WriteString("💡 Suggestions:\n")
+		for _, s := range result.Suggestions {
+			sb.WriteString(fmt.Sprintf("  - %s\n", s))
+		}
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
