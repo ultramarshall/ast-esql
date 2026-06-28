@@ -148,6 +148,11 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		} else {
 			displayName = "In"
 		}
+	case parser.CoalesceNode:
+		displayName = "Coalesce"
+
+	case parser.NullIfNode:
+		displayName = "NullIf"
 
 	}
 

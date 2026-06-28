@@ -41,13 +41,25 @@ func (p *Parser) parsePrimary() ASTNode {
 		debugPrint("    [parsePrimary] after CAST: token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return result
+	case token.COALESCE:
+		result := p.parseCoalesce()
+		debugPrint("    [parsePrimary] after COALESCE: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
+	case token.NULLIF:
+		result := p.parseNullIf()
+		debugPrint("    [parsePrimary] after NULLIF: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
 	case token.DOT:
 		debugPrint("    [parsePrimary] WARNING: DOT without identifier, skipping...\n")
 		p.nextToken()
 		return ASTNode{}
 	default:
-		debugPrint("    [parsePrimary] UNKNOWN: token=%s, literal='%s'\n",
+		// Kalau nemu token yang gak dikenal, consume biar gak loop
+		debugPrint("    [parsePrimary] UNKNOWN: token=%s, literal='%s', consuming...\n",
 			p.curToken.Type, p.curToken.Literal)
+		p.nextToken() // ← INI PENTING! consume token biar gak loop
 		return ASTNode{}
 	}
 }
@@ -382,5 +394,125 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 	debugPrint("  [parseWhen] END: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
+	return node
+}
+
+func (p *Parser) parseCoalesce() ASTNode {
+	debugPrint("    [parseCoalesce] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	node := NewASTNode(CoalesceNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	node.Value = "COALESCE"
+	startLine := p.curToken.Line
+	startCol := p.curToken.Column
+	p.nextToken() // consume COALESCE
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after COALESCE at line %d", p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume '('
+
+	// Parse arguments (at least 1)
+	var args []ASTNode
+	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
+		arg := p.parseExpression()
+		if arg.Type != "" {
+			args = append(args, arg)
+		}
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+
+	if len(args) < 1 {
+		p.errors = append(p.errors,
+			fmt.Sprintf("COALESCE requires at least 1 argument at line %d", p.curToken.Line))
+		return node
+	}
+
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in COALESCE expression at line %d", p.curToken.Line))
+		return node
+	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
+	p.nextToken() // consume ')'
+
+	// Add all arguments as children
+	for _, arg := range args {
+		node.AddChild(arg)
+	}
+
+	// Span dari COALESCE sampai ')'
+	node.Span.Start = Position{Line: startLine, Column: startCol}
+	node.Span.End = Position{Line: endLine, Column: endCol}
+
+	debugPrint("    [parseCoalesce] END: returning COALESCE node with %d args\n", len(args))
+	return node
+}
+
+// parseNullIf menangani NULLIF(expr1, expr2)
+func (p *Parser) parseNullIf() ASTNode {
+	debugPrint("    [parseNullIf] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	node := NewASTNode(NullIfNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	node.Value = "NULLIF"
+	startLine := p.curToken.Line
+	startCol := p.curToken.Column
+	p.nextToken() // consume NULLIF
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after NULLIF at line %d", p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume '('
+
+	// Parse first argument
+	arg1 := p.parseExpression()
+	if arg1.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected expression in NULLIF at line %d", p.curToken.Line))
+		return node
+	}
+	node.AddChild(arg1)
+
+	// Expect ','
+	if p.curToken.Type != token.COMMA {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ',' in NULLIF expression at line %d", p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume ','
+
+	// Parse second argument
+	arg2 := p.parseExpression()
+	if arg2.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected expression in NULLIF at line %d", p.curToken.Line))
+		return node
+	}
+	node.AddChild(arg2)
+
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in NULLIF expression at line %d", p.curToken.Line))
+		return node
+	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
+	p.nextToken() // consume ')'
+
+	// Span dari NULLIF sampai ')'
+	node.Span.Start = Position{Line: startLine, Column: startCol}
+	node.Span.End = Position{Line: endLine, Column: endCol}
+
+	debugPrint("    [parseNullIf] END: returning NULLIF node\n")
 	return node
 }

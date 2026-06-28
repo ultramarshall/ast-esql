@@ -78,6 +78,8 @@ const (
 	BETWEEN     = "BETWEEN"
 	LIKE        = "LIKE"
 	IN          = "IN"
+	COALESCE    = "COALESCE"
+	NULLIF      = "NULLIF"
 )
 
 type Token struct {
@@ -133,6 +135,8 @@ func LookupIdent(ident string) string {
 		"BETWEEN":     BETWEEN,
 		"LIKE":        LIKE,
 		"IN":          IN,
+		"COALESCE":    COALESCE,
+		"NULLIF":      NULLIF,
 	}
 	if tok, ok := keywords[ident]; ok {
 		return tok

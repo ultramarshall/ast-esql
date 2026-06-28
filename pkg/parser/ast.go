@@ -53,6 +53,8 @@ const (
 	ParenthesizedNode  NodeType = "Parenthesized"
 	LikeNode           NodeType = "Like"
 	InNode             NodeType = "In"
+	CoalesceNode       NodeType = "Coalesce"
+	NullIfNode         NodeType = "NullIf"
 )
 
 // Position represents a position in source code

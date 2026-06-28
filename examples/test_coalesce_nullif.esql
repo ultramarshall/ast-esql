@@ -1,0 +1,69 @@
+CREATE COMPUTE MODULE TestCoalesceNullIf
+    DECLARE var1 INTEGER;
+    DECLARE var2 INTEGER;
+    DECLARE var3 INTEGER;
+    DECLARE result INTEGER;
+    DECLARE resultStr STRING;
+    
+    -- Test data
+    SET var1 = NULL;
+    SET var2 = 10;
+    SET var3 = 20;
+    
+    -- COALESCE - returns first non-NULL
+    SET result = COALESCE(var1, var2, var3, 0);
+    
+    -- COALESCE with all NULL
+    SET result = COALESCE(NULL, NULL, NULL, 0);
+    
+    -- COALESCE with strings
+    DECLARE str1 STRING;
+    DECLARE str2 STRING;
+    SET str1 = NULL;
+    SET str2 = 'World';
+    SET resultStr = COALESCE(str1, str2, 'Default');
+    
+    -- COALESCE in IF condition
+    IF COALESCE(var1, var2, 0) > 5 THEN
+        SET result = 100;
+    END IF;
+    
+    -- COALESCE in CASE
+    SET result = CASE 
+        WHEN COALESCE(var1, var2, 0) = 10 THEN 1
+        ELSE 0
+    END;
+    
+    -- NULLIF with equal values
+    SET result = NULLIF(10, 10);
+    
+    -- NULLIF with different values
+    SET result = NULLIF(10, 20);
+    
+    -- NULLIF with NULL as first arg
+    SET result = NULLIF(NULL, 10);
+    
+    -- NULLIF with NULL as second arg
+    SET result = NULLIF(10, NULL);
+    
+    -- NULLIF with both NULL
+    SET result = NULLIF(NULL, NULL);
+    
+    -- NULLIF in IF condition
+    IF NULLIF(var2, 10) IS NULL THEN
+        SET result = 200;
+    END IF;
+    
+    -- NULLIF in CASE
+    SET result = CASE 
+        WHEN NULLIF(var2, 10) IS NULL THEN 1
+        ELSE 0
+    END;
+    
+    -- COALESCE with NULLIF
+    SET result = COALESCE(NULLIF(var2, 10), NULLIF(var3, 20), 999);
+    
+    -- Nested NULLIF
+    SET result = NULLIF(NULLIF(10, 10), 10);
+    
+END MODULE;

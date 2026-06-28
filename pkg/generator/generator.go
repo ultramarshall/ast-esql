@@ -147,6 +147,21 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		result += " (" + strings.Join(values, ", ") + ")"
 		return result
 
+	case parser.CoalesceNode:
+		var args []string
+		for _, child := range node.Children {
+			args = append(args, g.generateNode(child, 0))
+		}
+		return "COALESCE(" + strings.Join(args, ", ") + ")"
+
+	case parser.NullIfNode:
+		if len(node.Children) >= 2 {
+			arg1 := g.generateNode(node.Children[0], 0)
+			arg2 := g.generateNode(node.Children[1], 0)
+			return "NULLIF(" + arg1 + ", " + arg2 + ")"
+		}
+		return "NULLIF()"
+
 	default:
 		var sb strings.Builder
 		if node.Token != "" {

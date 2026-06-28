@@ -32,10 +32,17 @@ func (p *Parser) parseExpression() ASTNode {
 	debugPrint("  [parseExpression] token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
+	// STOP - jangan parse jika token bukan bagian dari expression
 	if p.curToken.Type == token.END || p.curToken.Type == token.THEN ||
 		p.curToken.Type == token.ELSE || p.curToken.Type == token.WHEN ||
-		p.curToken.Type == token.EOF {
-		debugPrint("  [parseExpression] STOP: token is %s, not an expression\n", p.curToken.Type)
+		p.curToken.Type == token.EOF ||
+		p.curToken.Type == token.RETURNS ||
+		p.curToken.Type == token.BEGIN ||
+		p.curToken.Type == token.MODULE ||
+		p.curToken.Type == token.FUNCTION ||
+		p.curToken.Type == token.PROCEDURE {
+		debugPrint("  [parseExpression] STOP: token is %s, consuming...\n", p.curToken.Type)
+		p.nextToken() // ← CONSUME token biar gak loop!
 		return ASTNode{}
 	}
 
