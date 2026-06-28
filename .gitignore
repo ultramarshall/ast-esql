@@ -2,7 +2,7 @@
 esql-ast
 esql-ast.exe
 
-# Test outputs
+# Test outputs - ignore semua di tests/
 tests/output/
 tests/diff/
 
@@ -26,7 +26,7 @@ go.sum
 coverage.out
 coverage.html
 
-# Temporary files
+# Temporary
 /tmp/
 *.tmp
 *.log
