@@ -27,8 +27,10 @@ func (p *Parser) parseSet() ASTNode {
 	}
 
 	if target.Type != "" {
-		targetWrapper := NewASTNode(BlockNode, "target", target.Line, target.Column)
+		// Gunakan Span untuk posisi
+		targetWrapper := NewASTNode(BlockNode, "target", target.Span.Start.Line, target.Span.Start.Column)
 		targetWrapper.AddChild(target)
+		targetWrapper.Span = target.Span
 		node.AddChild(targetWrapper)
 	}
 
@@ -37,9 +39,13 @@ func (p *Parser) parseSet() ASTNode {
 		p.nextToken()
 		value := p.parseExpression()
 		if value.Type != "" {
-			valueWrapper := NewASTNode(BlockNode, "value", value.Line, value.Column)
+			// Gunakan Span untuk posisi
+			valueWrapper := NewASTNode(BlockNode, "value", value.Span.Start.Line, value.Span.Start.Column)
 			valueWrapper.AddChild(value)
+			valueWrapper.Span = value.Span
 			node.AddChild(valueWrapper)
+			// Update node span to include value
+			node.Span.End = value.Span.End
 		}
 	} else {
 		p.errors = append(p.errors,

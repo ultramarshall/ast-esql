@@ -37,7 +37,6 @@ func (p *Parser) parseIf() ASTNode {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected THEN after IF condition, got %s at line %d",
 				p.curToken.Type, p.curToken.Line))
-		// Advance to prevent infinite loop
 		if p.curToken.Type != token.EOF {
 			p.nextToken()
 		}
@@ -80,11 +79,16 @@ func (p *Parser) parseIf() ASTNode {
 	// Konsumsi END IF
 	if p.curToken.Type == token.END {
 		debugPrint("[parseIf] Found END\n")
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column
 		p.nextToken()
 		if p.curToken.Type == token.IF {
 			debugPrint("[parseIf] Found IF after END\n")
+			endCol = p.curToken.Column + len(p.curToken.Literal)
 			p.nextToken()
 		}
+		// Update end span
+		node.Span.End = Position{Line: endLine, Column: endCol}
 	}
 
 	if p.curToken.Type == token.SEMICOLON {

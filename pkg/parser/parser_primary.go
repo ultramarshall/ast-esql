@@ -1,10 +1,9 @@
 package parser
 
 import (
+	"esql-ast-tool/internal/token"
 	"fmt"
 	"strconv"
-
-	"esql-ast-tool/internal/token"
 )
 
 func (p *Parser) parsePrimary() ASTNode {
@@ -82,8 +81,9 @@ func (p *Parser) parseFunctionCall(name ASTNode) ASTNode {
 			funcName = str
 		}
 	}
-	node := NewASTNode(FunctionCallNode, funcName, name.Line, name.Column)
+	node := NewASTNode(FunctionCallNode, funcName, name.Span.Start.Line, name.Span.Start.Column)
 	node.Value = funcName
+	node.Span.Start = name.Span.Start
 	p.nextToken()
 
 	if p.curToken.Type != token.RPAREN {
@@ -102,14 +102,18 @@ func (p *Parser) parseFunctionCall(name ASTNode) ASTNode {
 	}
 
 	if p.curToken.Type == token.RPAREN {
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 1
 		p.nextToken()
+		node.Span.End = Position{Line: endLine, Column: endCol}
 	}
 
 	return node
 }
 
 func (p *Parser) parseFieldReference(base ASTNode) ASTNode {
-	fieldNode := NewASTNode(FieldReferenceNode, "field", base.Line, base.Column)
+	fieldNode := NewASTNode(FieldReferenceNode, "field", base.Span.Start.Line, base.Span.Start.Column)
+	fieldNode.Span.Start = base.Span.Start
 	fieldNode.AddChild(base)
 
 	if base.Value != nil {
@@ -124,7 +128,7 @@ func (p *Parser) parseFieldReference(base ASTNode) ASTNode {
 			identNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
 			identNode.Value = p.curToken.Literal
 
-			newFieldNode := NewASTNode(FieldReferenceNode, "field", fieldNode.Line, fieldNode.Column)
+			newFieldNode := NewASTNode(FieldReferenceNode, "field", fieldNode.Span.Start.Line, fieldNode.Span.Start.Column)
 			newFieldNode.AddChild(fieldNode)
 			newFieldNode.AddChild(identNode)
 
@@ -133,6 +137,9 @@ func (p *Parser) parseFieldReference(base ASTNode) ASTNode {
 			} else {
 				newFieldNode.Value = p.curToken.Literal
 			}
+
+			newFieldNode.Span.Start = fieldNode.Span.Start
+			newFieldNode.Span.End = Position{Line: p.curToken.Line, Column: p.curToken.Column + len(p.curToken.Literal)}
 
 			fieldNode = newFieldNode
 			p.nextToken()
@@ -158,10 +165,24 @@ func (p *Parser) parseString() ASTNode {
 }
 
 func (p *Parser) parseGroupedExpression() ASTNode {
+	startLine := p.curToken.Line
+	startCol := p.curToken.Column
 	p.nextToken()
+
 	expr := p.parseExpression()
 	if p.curToken.Type == token.RPAREN {
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 1
 		p.nextToken()
+
+		// Buat Parenthesized node untuk menyimpan tanda kurung
+		parenNode := NewASTNode(ParenthesizedNode, "()", startLine, startCol)
+		parenNode.AddChild(expr)
+		parenNode.Span = Span{
+			Start: Position{Line: startLine, Column: startCol},
+			End:   Position{Line: endLine, Column: endCol},
+		}
+		return parenNode
 	}
 	return expr
 }
@@ -228,8 +249,11 @@ func (p *Parser) parseCast() ASTNode {
 				p.curToken.Type, p.curToken.Line))
 		return node
 	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
 	p.nextToken()
 
+	node.Span.End = Position{Line: endLine, Column: endCol}
 	debugPrint("    [parseCast] END: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
@@ -241,7 +265,7 @@ func (p *Parser) parseCase() ASTNode {
 		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
 
 	node := NewASTNode(CaseNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken() // consume CASE
+	p.nextToken()
 
 	debugPrint("[parseCase] after CASE: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
@@ -262,7 +286,6 @@ func (p *Parser) parseCase() ASTNode {
 		debugPrint("[parseCase] Searched CASE\n")
 	}
 
-	// Parse WHEN clauses
 	whenCount := 0
 	for p.curToken.Type == token.WHEN {
 		whenCount++
@@ -275,24 +298,26 @@ func (p *Parser) parseCase() ASTNode {
 			whenCount, p.curToken.Type, p.curToken.Literal)
 	}
 
-	// Parse ELSE if exists
 	if p.curToken.Type == token.ELSE {
 		debugPrint("[parseCase] Parsing ELSE\n")
-		p.nextToken() // consume ELSE
+		p.nextToken()
 		elseExpr := p.parseExpression()
 		if elseExpr.Type != "" {
-			elseNode := NewASTNode(BlockNode, "else", elseExpr.Line, elseExpr.Column)
+			elseNode := NewASTNode(BlockNode, "else", elseExpr.Span.Start.Line, elseExpr.Span.Start.Column)
 			elseNode.AddChild(elseExpr)
+			elseNode.Span = elseExpr.Span
 			node.AddChild(elseNode)
 		}
 		debugPrint("[parseCase] after ELSE: token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 	}
 
-	// Expect END - CONSUME IT
 	if p.curToken.Type == token.END {
 		debugPrint("[parseCase] Found END, consuming it\n")
-		p.nextToken() // consume END
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 3
+		p.nextToken()
+		node.Span.End = Position{Line: endLine, Column: endCol}
 	} else {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected END in CASE expression, got %s at line %d",
@@ -310,7 +335,7 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 		p.curToken.Type, p.curToken.Literal, isSimpleCase)
 
 	node := NewASTNode(WhenNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken() // consume WHEN
+	p.nextToken()
 
 	debugPrint("  [parseWhen] after WHEN: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
@@ -335,10 +360,9 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 			p.curToken.Type, p.curToken.Literal)
 	}
 
-	// Expect THEN
 	if p.curToken.Type == token.THEN {
 		debugPrint("  [parseWhen] Found THEN\n")
-		p.nextToken() // consume THEN
+		p.nextToken()
 	} else {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected THEN in CASE WHEN, got %s at line %d",
@@ -349,10 +373,10 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 	debugPrint("  [parseWhen] after THEN: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	// Parse result expression - TAPI HATI-HATI JANGAN PARSE SAMPAI MELEWATI END/WHEN/ELSE
 	result := p.parseExpression()
 	if result.Type != "" {
 		node.AddChild(result)
+		node.Span.End = result.Span.End
 	}
 
 	debugPrint("  [parseWhen] END: token=%s, literal='%s'\n",

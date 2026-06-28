@@ -5,11 +5,33 @@ import (
 	"fmt"
 )
 
+// Helper: combine span dari left dan right
+func combineSpan(left, right ASTNode) Span {
+	return Span{
+		Start: left.Span.Start,
+		End:   right.Span.End,
+	}
+}
+
+// Helper: combine span dari multiple nodes
+func combineSpans(nodes ...ASTNode) Span {
+	if len(nodes) == 0 {
+		return Span{}
+	}
+	span := nodes[0].Span
+	for _, n := range nodes[1:] {
+		if n.Span.End.Line > span.End.Line ||
+			(n.Span.End.Line == span.End.Line && n.Span.End.Column > span.End.Column) {
+			span.End = n.Span.End
+		}
+	}
+	return span
+}
+
 func (p *Parser) parseExpression() ASTNode {
 	debugPrint("  [parseExpression] token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	// STOP - jangan parse jika token bukan bagian dari expression
 	if p.curToken.Type == token.END || p.curToken.Type == token.THEN ||
 		p.curToken.Type == token.ELSE || p.curToken.Type == token.WHEN ||
 		p.curToken.Type == token.EOF {
@@ -31,6 +53,7 @@ func (p *Parser) parseExpression() ASTNode {
 			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
 			compNode.AddChild(left)
 			compNode.AddChild(right)
+			compNode.Span = combineSpan(left, right)
 			debugPrint("  [parseExpression] returning comparison node\n")
 			return compNode
 		}
@@ -52,6 +75,7 @@ func (p *Parser) parseLogicalOr() ASTNode {
 			binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 			binOp.AddChild(node)
 			binOp.AddChild(right)
+			binOp.Span = combineSpan(node, right)
 			node = binOp
 		}
 	}
@@ -72,6 +96,7 @@ func (p *Parser) parseLogicalAnd() ASTNode {
 			binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 			binOp.AddChild(node)
 			binOp.AddChild(right)
+			binOp.Span = combineSpan(node, right)
 			node = binOp
 		}
 	}
@@ -101,53 +126,15 @@ func (p *Parser) parseComparison() ASTNode {
 			nullNode = NewASTNode(IsNotNullNode, "IS NOT NULL", tok.Line, tok.Column)
 		}
 		nullNode.AddChild(node)
+		nullNode.Span = combineSpan(node, nullNode)
 		debugPrint("    [parseComparison] returning IS NULL/NOT NULL node\n")
 		return nullNode
-	}
-
-	// Handle BETWEEN
-	if p.curToken.Type == token.BETWEEN {
-		debugPrint("    [parseComparison] found BETWEEN\n")
-		tok := p.curToken
-		p.nextToken()
-
-		lower := p.parseAdditive()
-		if lower.Type == "" {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
-			return node
-		}
-
-		if p.curToken.Type != token.AND {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
-					p.curToken.Type, p.curToken.Line))
-			return node
-		}
-		p.nextToken()
-
-		upper := p.parseAdditive()
-		if upper.Type == "" {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
-			return node
-		}
-
-		betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
-		betweenNode.AddChild(node)
-		betweenNode.AddChild(lower)
-		betweenNode.AddChild(upper)
-
-		debugPrint("    [parseComparison] returning BETWEEN node\n")
-		return betweenNode
 	}
 
 	// Handle NOT ... (including NOT BETWEEN)
 	if p.curToken.Type == token.NOT {
 		debugPrint("    [parseComparison] found NOT, checking next token\n")
 		tok := p.curToken
-
-		// Save position
 		pos := p.position
 		p.nextToken() // consume NOT
 
@@ -178,18 +165,16 @@ func (p *Parser) parseComparison() ASTNode {
 				return node
 			}
 
-			// Create BETWEEN node
+			// Buat BetweenNode dengan flag Not = true
 			betweenNode := NewASTNode(BetweenNode, "BETWEEN", tok.Line, tok.Column)
+			betweenNode.Not = true
 			betweenNode.AddChild(node)
 			betweenNode.AddChild(lower)
 			betweenNode.AddChild(upper)
-
-			// Wrap with NOT
-			notNode := NewASTNode(UnaryOpNode, "NOT", tok.Line, tok.Column)
-			notNode.AddChild(betweenNode)
+			betweenNode.Span = combineSpans(node, lower, upper)
 
 			debugPrint("    [parseComparison] returning NOT BETWEEN node\n")
-			return notNode
+			return betweenNode
 		} else {
 			// Not NOT BETWEEN, rewind and handle as unary NOT
 			debugPrint("    [parseComparison] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
@@ -203,10 +188,53 @@ func (p *Parser) parseComparison() ASTNode {
 			if right.Type != "" {
 				unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
 				unaryNode.AddChild(right)
+				unaryNode.Span = combineSpan(
+					NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+					right,
+				)
 				return unaryNode
 			}
 			return node
 		}
+	}
+
+	// Handle BETWEEN (regular, tanpa NOT)
+	if p.curToken.Type == token.BETWEEN {
+		debugPrint("    [parseComparison] found BETWEEN\n")
+		tok := p.curToken
+		p.nextToken()
+
+		lower := p.parseAdditive()
+		if lower.Type == "" {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
+			return node
+		}
+
+		if p.curToken.Type != token.AND {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
+					p.curToken.Type, p.curToken.Line))
+			return node
+		}
+		p.nextToken()
+
+		upper := p.parseAdditive()
+		if upper.Type == "" {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
+			return node
+		}
+
+		betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
+		betweenNode.Not = false
+		betweenNode.AddChild(node)
+		betweenNode.AddChild(lower)
+		betweenNode.AddChild(upper)
+		betweenNode.Span = combineSpans(node, lower, upper)
+
+		debugPrint("    [parseComparison] returning BETWEEN node\n")
+		return betweenNode
 	}
 
 	// Handle regular comparison operators
@@ -221,6 +249,7 @@ func (p *Parser) parseComparison() ASTNode {
 			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
 			compNode.AddChild(node)
 			compNode.AddChild(right)
+			compNode.Span = combineSpan(node, right)
 			debugPrint("    [parseComparison] returning comparison node\n")
 			return compNode
 		}
@@ -245,6 +274,7 @@ func (p *Parser) parseAdditive() ASTNode {
 		binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 		binOp.AddChild(node)
 		binOp.AddChild(right)
+		binOp.Span = combineSpan(node, right)
 		node = binOp
 	}
 
@@ -268,6 +298,7 @@ func (p *Parser) parseMultiplicative() ASTNode {
 		binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 		binOp.AddChild(node)
 		binOp.AddChild(right)
+		binOp.Span = combineSpan(node, right)
 		node = binOp
 	}
 
@@ -287,19 +318,26 @@ func (p *Parser) parseUnary() ASTNode {
 		operand := p.parsePrimary()
 		unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
 		unaryNode.AddChild(operand)
+		unaryNode.Span = combineSpan(
+			NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+			operand,
+		)
 		debugPrint("    [parseUnary] END (unary minus): token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return unaryNode
 	}
 
-	// NOT is handled in parseComparison for NOT BETWEEN
-	// But if we encounter NOT here, treat as unary NOT
+	// Note: NOT is now handled in parseComparison, but keep this for safety
 	if p.curToken.Type == token.NOT {
 		tok := p.curToken
 		p.nextToken()
 		operand := p.parseComparison()
 		unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
 		unaryNode.AddChild(operand)
+		unaryNode.Span = combineSpan(
+			NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+			operand,
+		)
 		debugPrint("    [parseUnary] END (unary not): token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return unaryNode

@@ -53,10 +53,14 @@ func (p *Parser) parseComputeModule() ASTNode {
 
 	// Consume END MODULE
 	if p.curToken.Type == token.END {
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 3
 		p.nextToken()
 		if p.curToken.Type == token.MODULE {
+			endCol = p.curToken.Column + len(p.curToken.Literal)
 			p.nextToken()
 		}
+		moduleNode.Span.End = Position{Line: endLine, Column: endCol}
 	}
 
 	return moduleNode

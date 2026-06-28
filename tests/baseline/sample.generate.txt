@@ -1,8 +1,0 @@
-CREATE COMPUTE MODULE TestModule
-    DECLARE myVar INTEGER;
-    SET myVar = 42;
-    IF myVar > 0 THEN
-        SET Environment.Variables.Status = 'OK';
-    END IF;
-END MODULE;
-

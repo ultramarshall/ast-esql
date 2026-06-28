@@ -17,7 +17,7 @@ func NewPrinter() *Printer {
 
 func (p *Printer) PrintProgram(program parser.Program) string {
 	var sb strings.Builder
-	sb.WriteString("Program [line: 1, col: 1]\n")
+	sb.WriteString(fmt.Sprintf("Program %s\n", programSpan(program)))
 
 	for _, stmt := range program.Statements {
 		sb.WriteString(p.printNode(stmt, 1))
@@ -34,7 +34,6 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 	indent := strings.Repeat(p.indent, level)
 	var sb strings.Builder
 
-	// Determine display name
 	displayName := string(node.Type)
 	switch node.Type {
 	case parser.CreateNode:
@@ -55,22 +54,14 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = "Set"
 	case parser.IfNode:
 		displayName = "If"
-		// Tampilkan condition jika ada
-		if len(node.Children) > 0 {
-			sb.WriteString(fmt.Sprintf("%s%s [line: %d, col: %d]\n", indent, displayName, node.Line, node.Column))
-			// Print condition
-			cond := node.Children[0]
-			sb.WriteString(p.printNode(cond, level+1))
-			// Print then block
-			if len(node.Children) > 1 {
-				sb.WriteString(p.printNode(node.Children[1], level+1))
-			}
-			// Print else block if exists
-			if len(node.Children) > 2 {
-				sb.WriteString(p.printNode(node.Children[2], level+1))
-			}
-			return sb.String()
+		// Print span
+		spanStr := node.Span.String()
+		sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, displayName, spanStr))
+		// Print children
+		for _, child := range node.Children {
+			sb.WriteString(p.printNode(child, level+1))
 		}
+		return sb.String()
 
 	case parser.BlockNode:
 		switch node.Token {
@@ -132,15 +123,34 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 	case parser.IsNotNullNode:
 		displayName = "IsNotNull"
 	case parser.BetweenNode:
-		displayName = "Between"
-
+		if node.Not {
+			displayName = "Between (NOT)"
+		} else {
+			displayName = "Between"
+		}
+	case parser.UnaryOpNode:
+		displayName = fmt.Sprintf("UnaryOp (%s)", node.Token)
+	case parser.BinaryOpNode:
+		displayName = fmt.Sprintf("BinaryOp (%s)", node.Token)
+	case parser.ParenthesizedNode:
+		displayName = "Parenthesized"
 	}
 
-	sb.WriteString(fmt.Sprintf("%s%s [line: %d, col: %d]\n", indent, displayName, node.Line, node.Column))
+	spanStr := node.Span.String()
+	sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, displayName, spanStr))
 
 	for _, child := range node.Children {
 		sb.WriteString(p.printNode(child, level+1))
 	}
 
 	return sb.String()
+}
+
+func programSpan(program parser.Program) string {
+	if len(program.Statements) == 0 {
+		return "[1:1 - 1:1]"
+	}
+	start := program.Statements[0].Span.Start
+	end := program.Statements[len(program.Statements)-1].Span.End
+	return fmt.Sprintf("[%d:%d - %d:%d]", start.Line, start.Column, end.Line, end.Column)
 }

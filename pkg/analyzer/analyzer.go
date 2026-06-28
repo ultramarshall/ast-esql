@@ -133,7 +133,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				}
 				a.variables[name] = VariableInfo{
 					Type: varType,
-					Line: node.Line,
+					Line: node.Span.Start.Line, // Gunakan Span
 				}
 				a.definedVariables[name] = true
 			}
@@ -153,7 +153,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "UNKNOWN",
-					Line:       node.Line,
+					Line:       node.Span.Start.Line, // Gunakan Span
 				}
 			}
 		}
@@ -163,7 +163,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 			if name, ok := node.Children[0].Value.(string); ok {
 				a.procedures[name] = ProcedureInfo{
 					Parameters: []string{},
-					Line:       node.Line,
+					Line:       node.Span.Start.Line, // Gunakan Span
 				}
 			}
 		}
@@ -179,7 +179,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "BUILTIN",
-					Line:       node.Line,
+					Line:       node.Span.Start.Line, // Gunakan Span
 				}
 			}
 		}

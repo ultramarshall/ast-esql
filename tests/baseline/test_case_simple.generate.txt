@@ -1,7 +1,0 @@
-CREATE COMPUTE MODULE TestCaseSimple
-    DECLARE score INTEGER;
-    DECLARE grade STRING;
-    SET score = 85;
-    SET grade = CASE score WHEN 90 THEN 'A' WHEN 80 THEN 'B' ELSE 'C' END;
-END MODULE;
-

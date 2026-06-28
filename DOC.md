@@ -10,15 +10,16 @@ Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder d
 │   └── esql-ast
 │       └── main.go
 ├── DOC.md
-├── esql-ast
 ├── examples
 │   ├── sample.esql
+│   ├── test_between.esql
 │   ├── test_case.esql
 │   ├── test_case_nested_if.esql
 │   ├── test_case_searched_only.esql
 │   ├── test_case_simple.esql
 │   ├── test_case_simple_only.esql
 │   ├── test_cast.esql
+│   ├── test_is_null.esql
 │   └── test_nested_cast.esql
 ├── generate_doc.sh
 ├── go.mod
@@ -48,60 +49,13 @@ Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder d
 │   │   └── parser_utils.go
 │   └── printer
 │       └── printer.go
+├── scripts
+│   ├── baseline.sh
+│   ├── diff.sh
+│   └── test.sh
 └── tests
-    ├── baseline
-    │   ├── case_full.analyze.txt
-    │   ├── case_full.generate.txt
-    │   ├── case_full.pretty.txt
-    │   ├── case_nested_if.analyze.txt
-    │   ├── case_nested_if.generate.txt
-    │   ├── case_nested_if.pretty.txt
-    │   ├── case_searched.analyze.txt
-    │   ├── case_searched.generate.txt
-    │   ├── case_searched.pretty.txt
-    │   ├── case_simple.analyze.txt
-    │   ├── case_simple.generate.txt
-    │   ├── case_simple.pretty.txt
-    │   ├── cast.analyze.txt
-    │   ├── cast.generate.txt
-    │   ├── cast.json.txt
-    │   ├── cast.pretty.txt
-    │   ├── nested_cast.generate.txt
-    │   ├── nested_cast.pretty.txt
-    │   ├── sample.analyze.txt
-    │   ├── sample.generate.txt
-    │   ├── sample.json.txt
-    │   └── sample.pretty.txt
-    ├── diff
-    │   ├── case_full.analyze.txt.diff
-    │   ├── case_nested_if.analyze.txt.diff
-    │   ├── case_searched.analyze.txt.diff
-    │   └── cast.analyze.txt.diff
-    └── output
-        ├── case_full.analyze.txt
-        ├── case_full.generate.txt
-        ├── case_full.pretty.txt
-        ├── case_nested_if.analyze.txt
-        ├── case_nested_if.generate.txt
-        ├── case_nested_if.pretty.txt
-        ├── case_searched.analyze.txt
-        ├── case_searched.generate.txt
-        ├── case_searched.pretty.txt
-        ├── case_simple.analyze.txt
-        ├── case_simple.generate.txt
-        ├── case_simple.pretty.txt
-        ├── cast.analyze.txt
-        ├── cast.generate.txt
-        ├── cast.json.txt
-        ├── cast.pretty.txt
-        ├── nested_cast.generate.txt
-        ├── nested_cast.pretty.txt
-        ├── sample.analyze.txt
-        ├── sample.generate.txt
-        ├── sample.json.txt
-        └── sample.pretty.txt
 
-15 directories, 80 files
+13 directories, 36 files
 ```
 
 ## Isi Kode Berdasarkan File
@@ -113,6 +67,43 @@ module esql-ast-tool
 
 go 1.22
 
+```
+
+---
+
+### File: `examples/test_between.esql`
+
+```text
+CREATE COMPUTE MODULE TestBetween
+    DECLARE score INTEGER;
+    DECLARE result INTEGER;
+    DECLARE grade STRING;
+    
+    SET score = 85;
+    
+    -- Basic BETWEEN
+    IF score BETWEEN 80 AND 100 THEN
+        SET result = 1;
+    END IF;
+    
+    -- NOT BETWEEN
+    IF score NOT BETWEEN 0 AND 50 THEN
+        SET result = 2;
+    END IF;
+    
+    -- BETWEEN in CASE
+    SET grade = CASE 
+        WHEN score BETWEEN 90 AND 100 THEN 'A'
+        WHEN score BETWEEN 80 AND 89 THEN 'B'
+        WHEN score BETWEEN 70 AND 79 THEN 'C'
+        ELSE 'D'
+    END;
+    
+    -- Nested BETWEEN with expressions
+    IF (score + 5) BETWEEN 80 AND 100 THEN
+        SET result = 3;
+    END IF;
+END MODULE;
 ```
 
 ---
@@ -290,6 +281,38 @@ END MODULE;
 
 ---
 
+### File: `examples/test_is_null.esql`
+
+```text
+CREATE COMPUTE MODULE TestIsNull
+    DECLARE var1 INTEGER;
+    DECLARE var2 STRING;
+    DECLARE result INTEGER;
+    
+    SET var1 = NULL;
+    SET var2 = 'Hello';
+    
+    -- Test IS NULL
+    IF var1 IS NULL THEN
+        SET result = 1;
+    END IF;
+    
+    -- Test IS NOT NULL
+    IF var2 IS NOT NULL THEN
+        SET result = 2;
+    END IF;
+    
+    -- Test dalam CASE
+    SET result = CASE 
+        WHEN var1 IS NULL THEN 100
+        WHEN var2 IS NOT NULL THEN 200
+        ELSE 0
+    END;
+END MODULE;
+```
+
+---
+
 ### File: `pkg/parser/parser_stmt_set.go`
 
 ```go
@@ -322,8 +345,10 @@ func (p *Parser) parseSet() ASTNode {
 	}
 
 	if target.Type != "" {
-		targetWrapper := NewASTNode(BlockNode, "target", target.Line, target.Column)
+		// Gunakan Span untuk posisi
+		targetWrapper := NewASTNode(BlockNode, "target", target.Span.Start.Line, target.Span.Start.Column)
 		targetWrapper.AddChild(target)
+		targetWrapper.Span = target.Span
 		node.AddChild(targetWrapper)
 	}
 
@@ -332,9 +357,13 @@ func (p *Parser) parseSet() ASTNode {
 		p.nextToken()
 		value := p.parseExpression()
 		if value.Type != "" {
-			valueWrapper := NewASTNode(BlockNode, "value", value.Line, value.Column)
+			// Gunakan Span untuk posisi
+			valueWrapper := NewASTNode(BlockNode, "value", value.Span.Start.Line, value.Span.Start.Column)
 			valueWrapper.AddChild(value)
+			valueWrapper.Span = value.Span
 			node.AddChild(valueWrapper)
+			// Update node span to include value
+			node.Span.End = value.Span.End
 		}
 	} else {
 		p.errors = append(p.errors,
@@ -365,6 +394,7 @@ package parser
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 type NodeType string
@@ -409,35 +439,73 @@ const (
 	LiteralNode        NodeType = "Literal"
 	IdentifierNode     NodeType = "Identifier"
 	CastNode           NodeType = "Cast"
+	IsNullNode         NodeType = "IsNull"
+	IsNotNullNode      NodeType = "IsNotNull"
+	BetweenNode        NodeType = "Between"
+	ParenthesizedNode  NodeType = "Parenthesized" // Tambahkan ini
 )
 
+// Position represents a position in source code
+type Position struct {
+	Line   int `json:"line"`
+	Column int `json:"column"`
+}
+
+// Span represents a range in source code (start to end)
+type Span struct {
+	Start Position `json:"start"`
+	End   Position `json:"end"`
+}
+
+// ASTNode represents a node in the Abstract Syntax Tree
 type ASTNode struct {
 	Type     NodeType    `json:"type"`
 	Value    interface{} `json:"value,omitempty"`
 	Children []ASTNode   `json:"children,omitempty"`
-	Line     int         `json:"line"`
-	Column   int         `json:"column"`
+	Span     Span        `json:"span"`
 	Token    string      `json:"-"`
+	Not      bool        `json:"not,omitempty"` // Untuk NOT BETWEEN
 }
 
+// NewASTNode creates a new AST node with start position
 func NewASTNode(nodeType NodeType, token string, line, column int) ASTNode {
 	return ASTNode{
 		Type:     nodeType,
 		Children: []ASTNode{},
-		Line:     line,
-		Column:   column,
-		Token:    token,
+		Span: Span{
+			Start: Position{Line: line, Column: column},
+			End:   Position{Line: line, Column: column + len(token)},
+		},
+		Token: token,
+		Not:   false,
 	}
 }
 
+// AddChild adds a child node and extends span
 func (n *ASTNode) AddChild(child ASTNode) {
 	n.Children = append(n.Children, child)
+	n.ExtendSpan(child)
 }
 
+// ExtendSpan extends the node's span to include the child's span
+func (n *ASTNode) ExtendSpan(child ASTNode) {
+	if child.Span.End.Line > n.Span.End.Line ||
+		(child.Span.End.Line == n.Span.End.Line && child.Span.End.Column > n.Span.End.Column) {
+		n.Span.End = child.Span.End
+	}
+}
+
+// SetEnd sets the end position of the node
+func (n *ASTNode) SetEnd(line, column int) {
+	n.Span.End = Position{Line: line, Column: column}
+}
+
+// ToJSON returns JSON representation of the node
 func (n ASTNode) ToJSON() ([]byte, error) {
 	return json.MarshalIndent(n, "", "  ")
 }
 
+// Program represents a complete program
 type Program struct {
 	Statements []ASTNode `json:"statements"`
 }
@@ -454,6 +522,16 @@ func (p *Program) AddStatement(stmt ASTNode) {
 
 func (p Program) ToJSON() ([]byte, error) {
 	return json.MarshalIndent(p, "", "  ")
+}
+
+// String returns a string representation of Position
+func (p Position) String() string {
+	return fmt.Sprintf("%d:%d", p.Line, p.Column)
+}
+
+// String returns a string representation of Span
+func (s Span) String() string {
+	return fmt.Sprintf("[%s - %s]", s.Start.String(), s.End.String())
 }
 
 ```
@@ -518,10 +596,14 @@ func (p *Parser) parseComputeModule() ASTNode {
 
 	// Consume END MODULE
 	if p.curToken.Type == token.END {
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 3
 		p.nextToken()
 		if p.curToken.Type == token.MODULE {
+			endCol = p.curToken.Column + len(p.curToken.Literal)
 			p.nextToken()
 		}
+		moduleNode.Span.End = Position{Line: endLine, Column: endCol}
 	}
 
 	return moduleNode
@@ -744,10 +826,9 @@ func (p *Parser) parseProcedureBody(node *ASTNode) {
 package parser
 
 import (
+	"esql-ast-tool/internal/token"
 	"fmt"
 	"strconv"
-
-	"esql-ast-tool/internal/token"
 )
 
 func (p *Parser) parsePrimary() ASTNode {
@@ -825,8 +906,9 @@ func (p *Parser) parseFunctionCall(name ASTNode) ASTNode {
 			funcName = str
 		}
 	}
-	node := NewASTNode(FunctionCallNode, funcName, name.Line, name.Column)
+	node := NewASTNode(FunctionCallNode, funcName, name.Span.Start.Line, name.Span.Start.Column)
 	node.Value = funcName
+	node.Span.Start = name.Span.Start
 	p.nextToken()
 
 	if p.curToken.Type != token.RPAREN {
@@ -845,14 +927,18 @@ func (p *Parser) parseFunctionCall(name ASTNode) ASTNode {
 	}
 
 	if p.curToken.Type == token.RPAREN {
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 1
 		p.nextToken()
+		node.Span.End = Position{Line: endLine, Column: endCol}
 	}
 
 	return node
 }
 
 func (p *Parser) parseFieldReference(base ASTNode) ASTNode {
-	fieldNode := NewASTNode(FieldReferenceNode, "field", base.Line, base.Column)
+	fieldNode := NewASTNode(FieldReferenceNode, "field", base.Span.Start.Line, base.Span.Start.Column)
+	fieldNode.Span.Start = base.Span.Start
 	fieldNode.AddChild(base)
 
 	if base.Value != nil {
@@ -867,7 +953,7 @@ func (p *Parser) parseFieldReference(base ASTNode) ASTNode {
 			identNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
 			identNode.Value = p.curToken.Literal
 
-			newFieldNode := NewASTNode(FieldReferenceNode, "field", fieldNode.Line, fieldNode.Column)
+			newFieldNode := NewASTNode(FieldReferenceNode, "field", fieldNode.Span.Start.Line, fieldNode.Span.Start.Column)
 			newFieldNode.AddChild(fieldNode)
 			newFieldNode.AddChild(identNode)
 
@@ -876,6 +962,9 @@ func (p *Parser) parseFieldReference(base ASTNode) ASTNode {
 			} else {
 				newFieldNode.Value = p.curToken.Literal
 			}
+
+			newFieldNode.Span.Start = fieldNode.Span.Start
+			newFieldNode.Span.End = Position{Line: p.curToken.Line, Column: p.curToken.Column + len(p.curToken.Literal)}
 
 			fieldNode = newFieldNode
 			p.nextToken()
@@ -901,10 +990,24 @@ func (p *Parser) parseString() ASTNode {
 }
 
 func (p *Parser) parseGroupedExpression() ASTNode {
+	startLine := p.curToken.Line
+	startCol := p.curToken.Column
 	p.nextToken()
+
 	expr := p.parseExpression()
 	if p.curToken.Type == token.RPAREN {
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 1
 		p.nextToken()
+
+		// Buat Parenthesized node untuk menyimpan tanda kurung
+		parenNode := NewASTNode(ParenthesizedNode, "()", startLine, startCol)
+		parenNode.AddChild(expr)
+		parenNode.Span = Span{
+			Start: Position{Line: startLine, Column: startCol},
+			End:   Position{Line: endLine, Column: endCol},
+		}
+		return parenNode
 	}
 	return expr
 }
@@ -971,8 +1074,11 @@ func (p *Parser) parseCast() ASTNode {
 				p.curToken.Type, p.curToken.Line))
 		return node
 	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
 	p.nextToken()
 
+	node.Span.End = Position{Line: endLine, Column: endCol}
 	debugPrint("    [parseCast] END: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
@@ -1022,8 +1128,9 @@ func (p *Parser) parseCase() ASTNode {
 		p.nextToken()
 		elseExpr := p.parseExpression()
 		if elseExpr.Type != "" {
-			elseNode := NewASTNode(BlockNode, "else", elseExpr.Line, elseExpr.Column)
+			elseNode := NewASTNode(BlockNode, "else", elseExpr.Span.Start.Line, elseExpr.Span.Start.Column)
 			elseNode.AddChild(elseExpr)
+			elseNode.Span = elseExpr.Span
 			node.AddChild(elseNode)
 		}
 		debugPrint("[parseCase] after ELSE: token=%s, literal='%s'\n",
@@ -1032,7 +1139,10 @@ func (p *Parser) parseCase() ASTNode {
 
 	if p.curToken.Type == token.END {
 		debugPrint("[parseCase] Found END, consuming it\n")
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column + 3
 		p.nextToken()
+		node.Span.End = Position{Line: endLine, Column: endCol}
 	} else {
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected END in CASE expression, got %s at line %d",
@@ -1041,11 +1151,6 @@ func (p *Parser) parseCase() ASTNode {
 
 	debugPrint("[parseCase] END: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
-
-	if p.curToken.Type == token.THEN || p.curToken.Type == token.ELSE || p.curToken.Type == token.END {
-		debugPrint("[parseCase] Next token is %s, returning early\n", p.curToken.Type)
-		return node
-	}
 
 	return node
 }
@@ -1096,6 +1201,7 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 	result := p.parseExpression()
 	if result.Type != "" {
 		node.AddChild(result)
+		node.Span.End = result.Span.End
 	}
 
 	debugPrint("  [parseWhen] END: token=%s, literal='%s'\n",
@@ -1115,11 +1221,42 @@ package parser
 
 import (
 	"esql-ast-tool/internal/token"
+	"fmt"
 )
+
+// Helper: combine span dari left dan right
+func combineSpan(left, right ASTNode) Span {
+	return Span{
+		Start: left.Span.Start,
+		End:   right.Span.End,
+	}
+}
+
+// Helper: combine span dari multiple nodes
+func combineSpans(nodes ...ASTNode) Span {
+	if len(nodes) == 0 {
+		return Span{}
+	}
+	span := nodes[0].Span
+	for _, n := range nodes[1:] {
+		if n.Span.End.Line > span.End.Line ||
+			(n.Span.End.Line == span.End.Line && n.Span.End.Column > span.End.Column) {
+			span.End = n.Span.End
+		}
+	}
+	return span
+}
 
 func (p *Parser) parseExpression() ASTNode {
 	debugPrint("  [parseExpression] token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
+
+	if p.curToken.Type == token.END || p.curToken.Type == token.THEN ||
+		p.curToken.Type == token.ELSE || p.curToken.Type == token.WHEN ||
+		p.curToken.Type == token.EOF {
+		debugPrint("  [parseExpression] STOP: token is %s, not an expression\n", p.curToken.Type)
+		return ASTNode{}
+	}
 
 	left := p.parseLogicalOr()
 
@@ -1135,6 +1272,7 @@ func (p *Parser) parseExpression() ASTNode {
 			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
 			compNode.AddChild(left)
 			compNode.AddChild(right)
+			compNode.Span = combineSpan(left, right)
 			debugPrint("  [parseExpression] returning comparison node\n")
 			return compNode
 		}
@@ -1156,6 +1294,7 @@ func (p *Parser) parseLogicalOr() ASTNode {
 			binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 			binOp.AddChild(node)
 			binOp.AddChild(right)
+			binOp.Span = combineSpan(node, right)
 			node = binOp
 		}
 	}
@@ -1176,6 +1315,7 @@ func (p *Parser) parseLogicalAnd() ASTNode {
 			binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 			binOp.AddChild(node)
 			binOp.AddChild(right)
+			binOp.Span = combineSpan(node, right)
 			node = binOp
 		}
 	}
@@ -1192,6 +1332,131 @@ func (p *Parser) parseComparison() ASTNode {
 	debugPrint("    [parseComparison] after parseAdditive: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
+	// Handle IS NULL / IS NOT NULL
+	if p.curToken.Type == token.ISNULL || p.curToken.Type == token.NOTNULL {
+		debugPrint("    [parseComparison] found IS NULL/NOT NULL: %s\n", p.curToken.Literal)
+		tok := p.curToken
+		p.nextToken()
+
+		var nullNode ASTNode
+		if tok.Type == token.ISNULL {
+			nullNode = NewASTNode(IsNullNode, "IS NULL", tok.Line, tok.Column)
+		} else {
+			nullNode = NewASTNode(IsNotNullNode, "IS NOT NULL", tok.Line, tok.Column)
+		}
+		nullNode.AddChild(node)
+		nullNode.Span = combineSpan(node, nullNode)
+		debugPrint("    [parseComparison] returning IS NULL/NOT NULL node\n")
+		return nullNode
+	}
+
+	// Handle NOT ... (including NOT BETWEEN)
+	if p.curToken.Type == token.NOT {
+		debugPrint("    [parseComparison] found NOT, checking next token\n")
+		tok := p.curToken
+		pos := p.position
+		p.nextToken() // consume NOT
+
+		// Check if next token is BETWEEN
+		if p.curToken.Type == token.BETWEEN {
+			debugPrint("    [parseComparison] found NOT BETWEEN\n")
+			p.nextToken() // consume BETWEEN
+
+			lower := p.parseAdditive()
+			if lower.Type == "" {
+				p.errors = append(p.errors,
+					fmt.Sprintf("expected lower bound in NOT BETWEEN expression at line %d", tok.Line))
+				return node
+			}
+
+			if p.curToken.Type != token.AND {
+				p.errors = append(p.errors,
+					fmt.Sprintf("expected AND in NOT BETWEEN expression, got %s at line %d",
+						p.curToken.Type, p.curToken.Line))
+				return node
+			}
+			p.nextToken()
+
+			upper := p.parseAdditive()
+			if upper.Type == "" {
+				p.errors = append(p.errors,
+					fmt.Sprintf("expected upper bound in NOT BETWEEN expression at line %d", tok.Line))
+				return node
+			}
+
+			// Buat BetweenNode dengan flag Not = true
+			betweenNode := NewASTNode(BetweenNode, "BETWEEN", tok.Line, tok.Column)
+			betweenNode.Not = true
+			betweenNode.AddChild(node)
+			betweenNode.AddChild(lower)
+			betweenNode.AddChild(upper)
+			betweenNode.Span = combineSpans(node, lower, upper)
+
+			debugPrint("    [parseComparison] returning NOT BETWEEN node\n")
+			return betweenNode
+		} else {
+			// Not NOT BETWEEN, rewind and handle as unary NOT
+			debugPrint("    [parseComparison] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
+			p.position = pos
+			p.curToken = p.tokens[p.position]
+
+			// Parse as unary NOT
+			tok = p.curToken
+			p.nextToken()
+			right := p.parseComparison()
+			if right.Type != "" {
+				unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
+				unaryNode.AddChild(right)
+				unaryNode.Span = combineSpan(
+					NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+					right,
+				)
+				return unaryNode
+			}
+			return node
+		}
+	}
+
+	// Handle BETWEEN (regular, tanpa NOT)
+	if p.curToken.Type == token.BETWEEN {
+		debugPrint("    [parseComparison] found BETWEEN\n")
+		tok := p.curToken
+		p.nextToken()
+
+		lower := p.parseAdditive()
+		if lower.Type == "" {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
+			return node
+		}
+
+		if p.curToken.Type != token.AND {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
+					p.curToken.Type, p.curToken.Line))
+			return node
+		}
+		p.nextToken()
+
+		upper := p.parseAdditive()
+		if upper.Type == "" {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
+			return node
+		}
+
+		betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
+		betweenNode.Not = false
+		betweenNode.AddChild(node)
+		betweenNode.AddChild(lower)
+		betweenNode.AddChild(upper)
+		betweenNode.Span = combineSpans(node, lower, upper)
+
+		debugPrint("    [parseComparison] returning BETWEEN node\n")
+		return betweenNode
+	}
+
+	// Handle regular comparison operators
 	if p.curToken.Type == token.EQ || p.curToken.Type == token.NOT_EQ ||
 		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
 		p.curToken.Type == token.LTE || p.curToken.Type == token.GTE {
@@ -1203,6 +1468,7 @@ func (p *Parser) parseComparison() ASTNode {
 			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
 			compNode.AddChild(node)
 			compNode.AddChild(right)
+			compNode.Span = combineSpan(node, right)
 			debugPrint("    [parseComparison] returning comparison node\n")
 			return compNode
 		}
@@ -1227,6 +1493,7 @@ func (p *Parser) parseAdditive() ASTNode {
 		binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 		binOp.AddChild(node)
 		binOp.AddChild(right)
+		binOp.Span = combineSpan(node, right)
 		node = binOp
 	}
 
@@ -1250,6 +1517,7 @@ func (p *Parser) parseMultiplicative() ASTNode {
 		binOp := NewASTNode(BinaryOpNode, tok.Literal, tok.Line, tok.Column)
 		binOp.AddChild(node)
 		binOp.AddChild(right)
+		binOp.Span = combineSpan(node, right)
 		node = binOp
 	}
 
@@ -1263,13 +1531,33 @@ func (p *Parser) parseUnary() ASTNode {
 	debugPrint("    [parseUnary] START: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	if p.curToken.Type == token.MINUS || p.curToken.Type == token.NOT {
+	if p.curToken.Type == token.MINUS {
 		tok := p.curToken
 		p.nextToken()
 		operand := p.parsePrimary()
 		unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
 		unaryNode.AddChild(operand)
-		debugPrint("    [parseUnary] END (unary): token=%s, literal='%s'\n",
+		unaryNode.Span = combineSpan(
+			NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+			operand,
+		)
+		debugPrint("    [parseUnary] END (unary minus): token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return unaryNode
+	}
+
+	// Note: NOT is now handled in parseComparison, but keep this for safety
+	if p.curToken.Type == token.NOT {
+		tok := p.curToken
+		p.nextToken()
+		operand := p.parseComparison()
+		unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
+		unaryNode.AddChild(operand)
+		unaryNode.Span = combineSpan(
+			NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+			operand,
+		)
+		debugPrint("    [parseUnary] END (unary not): token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return unaryNode
 	}
@@ -1529,16 +1817,18 @@ func (p *Parser) parseIf() ASTNode {
 		p.curToken.Type, p.curToken.Literal, p.curToken.Line)
 
 	node := NewASTNode(IfNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume IF
 
 	debugPrint("[parseIf] after IF: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	// Parse condition
+	// Parse condition - parseExpression will handle NOT
 	cond := p.parseExpression()
 	if cond.Type != "" {
 		debugPrint("[parseIf] condition parsed: type=%s\n", cond.Type)
 		node.AddChild(cond)
+	} else {
+		debugPrint("[parseIf] WARNING: empty condition\n")
 	}
 
 	debugPrint("[parseIf] after condition: token=%s, literal='%s'\n",
@@ -1547,13 +1837,15 @@ func (p *Parser) parseIf() ASTNode {
 	// Expect THEN
 	if p.curToken.Type == token.THEN {
 		debugPrint("[parseIf] Found THEN, consuming it\n")
-		p.nextToken()
+		p.nextToken() // consume THEN
 	} else {
 		debugPrint("[parseIf] ERROR: expected THEN, got %s\n", p.curToken.Type)
 		p.errors = append(p.errors,
 			fmt.Sprintf("expected THEN after IF condition, got %s at line %d",
 				p.curToken.Type, p.curToken.Line))
-		p.nextToken()
+		if p.curToken.Type != token.EOF {
+			p.nextToken()
+		}
 		return node
 	}
 
@@ -1593,11 +1885,16 @@ func (p *Parser) parseIf() ASTNode {
 	// Konsumsi END IF
 	if p.curToken.Type == token.END {
 		debugPrint("[parseIf] Found END\n")
+		endLine := p.curToken.Line
+		endCol := p.curToken.Column
 		p.nextToken()
 		if p.curToken.Type == token.IF {
 			debugPrint("[parseIf] Found IF after END\n")
+			endCol = p.curToken.Column + len(p.curToken.Literal)
 			p.nextToken()
 		}
+		// Update end span
+		node.Span.End = Position{Line: endLine, Column: endCol}
 	}
 
 	if p.curToken.Type == token.SEMICOLON {
@@ -1761,6 +2058,9 @@ func (p *Parser) parseStatement() ASTNode {
 	case token.CALL:
 		return p.parseCall()
 	case token.END:
+		p.nextToken()
+		return ASTNode{}
+	case token.WHEN, token.ELSE, token.THEN:
 		p.nextToken()
 		return ASTNode{}
 	default:
@@ -1982,6 +2282,24 @@ func (l *Lexer) peekChar() byte {
 	return l.input[l.readPosition]
 }
 
+func (l *Lexer) peekIdentifier() string {
+	pos := l.position
+	oldPos := l.position
+	oldReadPos := l.readPosition
+	oldCh := l.ch
+
+	for isLetter(l.ch) || isDigit(l.ch) || l.ch == '_' {
+		l.readChar()
+	}
+	ident := l.input[pos:l.position]
+
+	l.position = oldPos
+	l.readPosition = oldReadPos
+	l.ch = oldCh
+
+	return ident
+}
+
 func (l *Lexer) skipWhitespace() {
 	for l.ch == ' ' || l.ch == '\t' || l.ch == '\n' || l.ch == '\r' {
 		if l.ch == '\n' {
@@ -1994,13 +2312,11 @@ func (l *Lexer) skipWhitespace() {
 
 func (l *Lexer) skipComments() {
 	if l.ch == '-' && l.peekChar() == '-' {
-		// Single line comment
 		for l.ch != '\n' && l.ch != 0 {
 			l.readChar()
 		}
 		l.skipWhitespace()
 	} else if l.ch == '/' && l.peekChar() == '*' {
-		// Multi-line comment
 		l.readChar()
 		l.readChar()
 		for !(l.ch == '*' && l.peekChar() == '/') && l.ch != 0 {
@@ -2117,6 +2433,37 @@ func (l *Lexer) NextToken() token.Token {
 		if isLetter(l.ch) {
 			tok.Literal = l.readIdentifier()
 			tok.Type = token.LookupIdent(strings.ToUpper(tok.Literal))
+
+			// Handle IS NULL / IS NOT NULL
+			if tok.Type == token.IS {
+				l.skipWhitespace()
+				if strings.ToUpper(l.peekIdentifier()) == "NULL" {
+					l.readIdentifier()
+					tok.Type = token.ISNULL
+					tok.Literal = "IS NULL"
+				} else if strings.ToUpper(l.peekIdentifier()) == "NOT" {
+					l.readIdentifier()
+					l.skipWhitespace()
+					if strings.ToUpper(l.peekIdentifier()) == "NULL" {
+						l.readIdentifier()
+						tok.Type = token.NOTNULL
+						tok.Literal = "IS NOT NULL"
+					}
+				}
+				return tok
+			}
+
+			// Handle NOT BETWEEN - tapi jangan gabung jadi satu token
+			// Biarkan NOT dan BETWEEN sebagai token terpisah
+			if tok.Type == token.NOT {
+				// Cek apakah next token adalah BETWEEN
+				l.skipWhitespace()
+				if strings.ToUpper(l.peekIdentifier()) == "BETWEEN" {
+					// Return NOT, next token akan BETWEEN
+					return tok
+				}
+			}
+
 			return tok
 		} else if isDigit(l.ch) {
 			tok.Type = token.NUMBER
@@ -2298,7 +2645,7 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		return ""
 	}
 
-	_ = strings.Repeat(g.indent, level) // avoid unused variable
+	_ = strings.Repeat(g.indent, level)
 
 	switch node.Type {
 	case parser.CreateNode:
@@ -2348,6 +2695,42 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 
 	case parser.WhenNode:
 		return g.generateWhen(node, false)
+
+	case parser.IsNullNode:
+		if len(node.Children) > 0 {
+			return g.generateNode(node.Children[0], 0) + " IS NULL"
+		}
+		return "IS NULL"
+
+	case parser.IsNotNullNode:
+		if len(node.Children) > 0 {
+			return g.generateNode(node.Children[0], 0) + " IS NOT NULL"
+		}
+		return "IS NOT NULL"
+
+	case parser.BetweenNode:
+		if len(node.Children) >= 3 {
+			expr := g.generateNode(node.Children[0], 0)
+			lower := g.generateNode(node.Children[1], 0)
+			upper := g.generateNode(node.Children[2], 0)
+			if node.Not {
+				return expr + " NOT BETWEEN " + lower + " AND " + upper
+			}
+			return expr + " BETWEEN " + lower + " AND " + upper
+		}
+		return "BETWEEN"
+
+	case parser.ParenthesizedNode:
+		if len(node.Children) > 0 {
+			return "(" + g.generateNode(node.Children[0], 0) + ")"
+		}
+		return "()"
+
+	case parser.UnaryOpNode:
+		if len(node.Children) > 0 {
+			return node.Token + " " + g.generateNode(node.Children[0], 0)
+		}
+		return node.Token
 
 	default:
 		var sb strings.Builder
@@ -2443,7 +2826,6 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 
 	sb.WriteString(indentStr + "IF ")
 
-	// Generate condition (child 0)
 	if len(node.Children) > 0 {
 		cond := node.Children[0]
 		sb.WriteString(g.generateNode(cond, 0))
@@ -2451,7 +2833,6 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 
 	sb.WriteString(" THEN\n")
 
-	// Generate then block (child 1)
 	if len(node.Children) > 1 {
 		thenBlock := node.Children[1]
 		for _, stmt := range thenBlock.Children {
@@ -2459,7 +2840,6 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 		}
 	}
 
-	// Generate else block if exists (child 2)
 	if len(node.Children) > 2 {
 		elseBlock := node.Children[2]
 		sb.WriteString(indentStr + "ELSE\n")
@@ -2475,13 +2855,11 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 func (g *Generator) generateBlock(node parser.ASTNode, level int) string {
 	var sb strings.Builder
 
-	// Untuk BlockNode dengan token "else" di CASE expression
 	if node.Token == "else" && len(node.Children) > 0 {
 		sb.WriteString("ELSE " + g.generateNode(node.Children[0], 0))
 		return sb.String()
 	}
 
-	// Untuk BlockNode biasa (then, target, value, condition)
 	for _, child := range node.Children {
 		sb.WriteString(g.generateNode(child, level))
 	}
@@ -2515,14 +2893,12 @@ func (g *Generator) generateCast(node parser.ASTNode, level int) string {
 
 	sb.WriteString("CAST(")
 
-	// Generate expression
 	if len(node.Children) > 0 {
 		sb.WriteString(g.generateNode(node.Children[0], 0))
 	}
 
 	sb.WriteString(" AS ")
 
-	// Generate type
 	if len(node.Children) > 1 {
 		sb.WriteString(g.generateNode(node.Children[1], 0))
 	}
@@ -2537,12 +2913,9 @@ func (g *Generator) generateCase(node parser.ASTNode, level int) string {
 
 	sb.WriteString("CASE")
 
-	// Cek apakah ini simple CASE (child 0 adalah expression, bukan WHEN)
 	if len(node.Children) > 0 && node.Children[0].Type != parser.WhenNode {
-		// Simple CASE: CASE expression
 		sb.WriteString(" " + g.generateNode(node.Children[0], 0))
 
-		// Generate WHEN clauses (mulai dari index 1)
 		for i := 1; i < len(node.Children); i++ {
 			child := node.Children[i]
 			if child.Type == parser.WhenNode {
@@ -2552,7 +2925,6 @@ func (g *Generator) generateCase(node parser.ASTNode, level int) string {
 			}
 		}
 	} else {
-		// Searched CASE: CASE WHEN condition THEN result ...
 		for _, child := range node.Children {
 			if child.Type == parser.WhenNode {
 				sb.WriteString(" " + g.generateWhen(child, false))
@@ -2573,12 +2945,10 @@ func (g *Generator) generateWhen(node parser.ASTNode, isSimpleCase bool) string 
 
 	if len(node.Children) >= 2 {
 		if isSimpleCase {
-			// Simple CASE: WHEN value THEN result
 			sb.WriteString(g.generateNode(node.Children[0], 0))
 			sb.WriteString(" THEN ")
 			sb.WriteString(g.generateNode(node.Children[1], 0))
 		} else {
-			// Searched CASE: WHEN condition THEN result
 			sb.WriteString(g.generateNode(node.Children[0], 0))
 			sb.WriteString(" THEN ")
 			sb.WriteString(g.generateNode(node.Children[1], 0))
@@ -2730,7 +3100,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				}
 				a.variables[name] = VariableInfo{
 					Type: varType,
-					Line: node.Line,
+					Line: node.Span.Start.Line, // Gunakan Span
 				}
 				a.definedVariables[name] = true
 			}
@@ -2750,7 +3120,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "UNKNOWN",
-					Line:       node.Line,
+					Line:       node.Span.Start.Line, // Gunakan Span
 				}
 			}
 		}
@@ -2760,7 +3130,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 			if name, ok := node.Children[0].Value.(string); ok {
 				a.procedures[name] = ProcedureInfo{
 					Parameters: []string{},
-					Line:       node.Line,
+					Line:       node.Span.Start.Line, // Gunakan Span
 				}
 			}
 		}
@@ -2776,7 +3146,7 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "BUILTIN",
-					Line:       node.Line,
+					Line:       node.Span.Start.Line, // Gunakan Span
 				}
 			}
 		}
@@ -2793,6 +3163,17 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 		}
 	case parser.WhenNode:
 		// Analyze condition dan result
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+
+	case parser.IsNullNode, parser.IsNotNullNode:
+		// Analyze the expression being checked
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+	case parser.BetweenNode:
+		// Analyze all three children: expr, lower, upper
 		for _, child := range node.Children {
 			a.analyzeNode(child)
 		}
@@ -2830,7 +3211,7 @@ func NewPrinter() *Printer {
 
 func (p *Printer) PrintProgram(program parser.Program) string {
 	var sb strings.Builder
-	sb.WriteString("Program [line: 1, col: 1]\n")
+	sb.WriteString(fmt.Sprintf("Program %s\n", programSpan(program)))
 
 	for _, stmt := range program.Statements {
 		sb.WriteString(p.printNode(stmt, 1))
@@ -2847,7 +3228,6 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 	indent := strings.Repeat(p.indent, level)
 	var sb strings.Builder
 
-	// Determine display name
 	displayName := string(node.Type)
 	switch node.Type {
 	case parser.CreateNode:
@@ -2868,22 +3248,14 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = "Set"
 	case parser.IfNode:
 		displayName = "If"
-		// Tampilkan condition jika ada
-		if len(node.Children) > 0 {
-			sb.WriteString(fmt.Sprintf("%s%s [line: %d, col: %d]\n", indent, displayName, node.Line, node.Column))
-			// Print condition
-			cond := node.Children[0]
-			sb.WriteString(p.printNode(cond, level+1))
-			// Print then block
-			if len(node.Children) > 1 {
-				sb.WriteString(p.printNode(node.Children[1], level+1))
-			}
-			// Print else block if exists
-			if len(node.Children) > 2 {
-				sb.WriteString(p.printNode(node.Children[2], level+1))
-			}
-			return sb.String()
+		// Print span
+		spanStr := node.Span.String()
+		sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, displayName, spanStr))
+		// Print children
+		for _, child := range node.Children {
+			sb.WriteString(p.printNode(child, level+1))
 		}
+		return sb.String()
 
 	case parser.BlockNode:
 		switch node.Token {
@@ -2940,16 +3312,41 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = "Case"
 	case parser.WhenNode:
 		displayName = "When"
-
+	case parser.IsNullNode:
+		displayName = "IsNull"
+	case parser.IsNotNullNode:
+		displayName = "IsNotNull"
+	case parser.BetweenNode:
+		if node.Not {
+			displayName = "Between (NOT)"
+		} else {
+			displayName = "Between"
+		}
+	case parser.UnaryOpNode:
+		displayName = fmt.Sprintf("UnaryOp (%s)", node.Token)
+	case parser.BinaryOpNode:
+		displayName = fmt.Sprintf("BinaryOp (%s)", node.Token)
+	case parser.ParenthesizedNode:
+		displayName = "Parenthesized"
 	}
 
-	sb.WriteString(fmt.Sprintf("%s%s [line: %d, col: %d]\n", indent, displayName, node.Line, node.Column))
+	spanStr := node.Span.String()
+	sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, displayName, spanStr))
 
 	for _, child := range node.Children {
 		sb.WriteString(p.printNode(child, level+1))
 	}
 
 	return sb.String()
+}
+
+func programSpan(program parser.Program) string {
+	if len(program.Statements) == 0 {
+		return "[1:1 - 1:1]"
+	}
+	start := program.Statements[0].Span.Start
+	end := program.Statements[len(program.Statements)-1].Span.End
+	return fmt.Sprintf("[%d:%d - %d:%d]", start.Line, start.Column, end.Line, end.Column)
 }
 
 ```
@@ -3176,6 +3573,10 @@ const (
 	CAST        = "CAST"
 	CASE        = "CASE"
 	WHEN        = "WHEN"
+	IS          = "IS"
+	ISNULL      = "ISNULL"
+	NOTNULL     = "NOTNULL"
+	BETWEEN     = "BETWEEN"
 )
 
 type Token struct {
@@ -3226,6 +3627,9 @@ func LookupIdent(ident string) string {
 		"CAST":        CAST,
 		"CASE":        CASE,
 		"WHEN":        WHEN,
+		"IS":          IS,
+		"NULL":        IDENTIFIER,
+		"BETWEEN":     BETWEEN,
 	}
 	if tok, ok := keywords[ident]; ok {
 		return tok

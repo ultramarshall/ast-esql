@@ -31,7 +31,7 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		return ""
 	}
 
-	_ = strings.Repeat(g.indent, level) // avoid unused variable
+	_ = strings.Repeat(g.indent, level)
 
 	switch node.Type {
 	case parser.CreateNode:
@@ -99,9 +99,24 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 			expr := g.generateNode(node.Children[0], 0)
 			lower := g.generateNode(node.Children[1], 0)
 			upper := g.generateNode(node.Children[2], 0)
+			if node.Not {
+				return expr + " NOT BETWEEN " + lower + " AND " + upper
+			}
 			return expr + " BETWEEN " + lower + " AND " + upper
 		}
 		return "BETWEEN"
+
+	case parser.ParenthesizedNode:
+		if len(node.Children) > 0 {
+			return "(" + g.generateNode(node.Children[0], 0) + ")"
+		}
+		return "()"
+
+	case parser.UnaryOpNode:
+		if len(node.Children) > 0 {
+			return node.Token + " " + g.generateNode(node.Children[0], 0)
+		}
+		return node.Token
 
 	default:
 		var sb strings.Builder
@@ -197,7 +212,6 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 
 	sb.WriteString(indentStr + "IF ")
 
-	// Generate condition (child 0)
 	if len(node.Children) > 0 {
 		cond := node.Children[0]
 		sb.WriteString(g.generateNode(cond, 0))
@@ -205,7 +219,6 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 
 	sb.WriteString(" THEN\n")
 
-	// Generate then block (child 1)
 	if len(node.Children) > 1 {
 		thenBlock := node.Children[1]
 		for _, stmt := range thenBlock.Children {
@@ -213,7 +226,6 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 		}
 	}
 
-	// Generate else block if exists (child 2)
 	if len(node.Children) > 2 {
 		elseBlock := node.Children[2]
 		sb.WriteString(indentStr + "ELSE\n")
@@ -229,13 +241,11 @@ func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 func (g *Generator) generateBlock(node parser.ASTNode, level int) string {
 	var sb strings.Builder
 
-	// Untuk BlockNode dengan token "else" di CASE expression
 	if node.Token == "else" && len(node.Children) > 0 {
 		sb.WriteString("ELSE " + g.generateNode(node.Children[0], 0))
 		return sb.String()
 	}
 
-	// Untuk BlockNode biasa (then, target, value, condition)
 	for _, child := range node.Children {
 		sb.WriteString(g.generateNode(child, level))
 	}
@@ -269,14 +279,12 @@ func (g *Generator) generateCast(node parser.ASTNode, level int) string {
 
 	sb.WriteString("CAST(")
 
-	// Generate expression
 	if len(node.Children) > 0 {
 		sb.WriteString(g.generateNode(node.Children[0], 0))
 	}
 
 	sb.WriteString(" AS ")
 
-	// Generate type
 	if len(node.Children) > 1 {
 		sb.WriteString(g.generateNode(node.Children[1], 0))
 	}
@@ -291,12 +299,9 @@ func (g *Generator) generateCase(node parser.ASTNode, level int) string {
 
 	sb.WriteString("CASE")
 
-	// Cek apakah ini simple CASE (child 0 adalah expression, bukan WHEN)
 	if len(node.Children) > 0 && node.Children[0].Type != parser.WhenNode {
-		// Simple CASE: CASE expression
 		sb.WriteString(" " + g.generateNode(node.Children[0], 0))
 
-		// Generate WHEN clauses (mulai dari index 1)
 		for i := 1; i < len(node.Children); i++ {
 			child := node.Children[i]
 			if child.Type == parser.WhenNode {
@@ -306,7 +311,6 @@ func (g *Generator) generateCase(node parser.ASTNode, level int) string {
 			}
 		}
 	} else {
-		// Searched CASE: CASE WHEN condition THEN result ...
 		for _, child := range node.Children {
 			if child.Type == parser.WhenNode {
 				sb.WriteString(" " + g.generateWhen(child, false))
@@ -327,12 +331,10 @@ func (g *Generator) generateWhen(node parser.ASTNode, isSimpleCase bool) string 
 
 	if len(node.Children) >= 2 {
 		if isSimpleCase {
-			// Simple CASE: WHEN value THEN result
 			sb.WriteString(g.generateNode(node.Children[0], 0))
 			sb.WriteString(" THEN ")
 			sb.WriteString(g.generateNode(node.Children[1], 0))
 		} else {
-			// Searched CASE: WHEN condition THEN result
 			sb.WriteString(g.generateNode(node.Children[0], 0))
 			sb.WriteString(" THEN ")
 			sb.WriteString(g.generateNode(node.Children[1], 0))
