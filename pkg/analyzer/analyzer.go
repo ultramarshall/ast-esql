@@ -269,6 +269,8 @@ func (a *Analyzer) buildImpactMap() map[string][]string {
 				}
 			}
 			if len(affected) > 0 {
+				// SORT affected
+				sort.Strings(affected)
 				impact[varName] = affected
 			}
 		}
@@ -277,7 +279,6 @@ func (a *Analyzer) buildImpactMap() map[string][]string {
 	// Untuk setiap procedure/function, cari siapa yang memanggilnya
 	for name := range a.procedures {
 		if callers, ok := a.reverseCallGraph[name]; ok {
-			// Deduplicate callers
 			seen := make(map[string]bool)
 			var unique []string
 			for _, caller := range callers {
@@ -286,6 +287,7 @@ func (a *Analyzer) buildImpactMap() map[string][]string {
 					unique = append(unique, caller)
 				}
 			}
+			sort.Strings(unique)
 			impact[name] = unique
 		}
 	}
@@ -299,6 +301,7 @@ func (a *Analyzer) buildImpactMap() map[string][]string {
 					unique = append(unique, caller)
 				}
 			}
+			sort.Strings(unique)
 			impact[name] = unique
 		}
 	}

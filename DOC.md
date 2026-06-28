@@ -10,16 +10,21 @@ Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder d
 │   └── esql-ast
 │       └── main.go
 ├── DOC.md
+├── esql-ast
 ├── examples
 │   ├── sample.esql
 │   ├── test_between.esql
+│   ├── test_call_graph.esql
 │   ├── test_case.esql
 │   ├── test_case_nested_if.esql
 │   ├── test_case_searched_only.esql
 │   ├── test_case_simple.esql
 │   ├── test_case_simple_only.esql
 │   ├── test_cast.esql
+│   ├── test_coalesce_nullif.esql
+│   ├── test_in.esql
 │   ├── test_is_null.esql
+│   ├── test_like.esql
 │   └── test_nested_cast.esql
 ├── generate_doc.sh
 ├── go.mod
@@ -54,11 +59,241 @@ Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder d
 │   ├── diff.sh
 │   └── test.sh
 └── tests
+    ├── baseline
+    │   ├── sample.analyze.txt
+    │   ├── sample.generate.txt
+    │   ├── sample.json.txt
+    │   ├── sample.pretty.txt
+    │   ├── test_between.analyze.txt
+    │   ├── test_between.generate.txt
+    │   ├── test_between.json.txt
+    │   ├── test_between.pretty.txt
+    │   ├── test_call_graph.analyze.txt
+    │   ├── test_call_graph.generate.txt
+    │   ├── test_call_graph.json.txt
+    │   ├── test_call_graph.pretty.txt
+    │   ├── test_case.analyze.txt
+    │   ├── test_case.generate.txt
+    │   ├── test_case.json.txt
+    │   ├── test_case_nested_if.analyze.txt
+    │   ├── test_case_nested_if.generate.txt
+    │   ├── test_case_nested_if.json.txt
+    │   ├── test_case_nested_if.pretty.txt
+    │   ├── test_case.pretty.txt
+    │   ├── test_case_searched_only.analyze.txt
+    │   ├── test_case_searched_only.generate.txt
+    │   ├── test_case_searched_only.json.txt
+    │   ├── test_case_searched_only.pretty.txt
+    │   ├── test_case_simple.analyze.txt
+    │   ├── test_case_simple.generate.txt
+    │   ├── test_case_simple.json.txt
+    │   ├── test_case_simple_only.analyze.txt
+    │   ├── test_case_simple_only.generate.txt
+    │   ├── test_case_simple_only.json.txt
+    │   ├── test_case_simple_only.pretty.txt
+    │   ├── test_case_simple.pretty.txt
+    │   ├── test_cast.analyze.txt
+    │   ├── test_cast.generate.txt
+    │   ├── test_cast.json.txt
+    │   ├── test_cast.pretty.txt
+    │   ├── test_coalesce_nullif.analyze.txt
+    │   ├── test_coalesce_nullif.generate.txt
+    │   ├── test_coalesce_nullif.json.txt
+    │   ├── test_coalesce_nullif.pretty.txt
+    │   ├── test_in.analyze.txt
+    │   ├── test_in.generate.txt
+    │   ├── test_in.json.txt
+    │   ├── test_in.pretty.txt
+    │   ├── test_is_null.analyze.txt
+    │   ├── test_is_null.generate.txt
+    │   ├── test_is_null.json.txt
+    │   ├── test_is_null.pretty.txt
+    │   ├── test_like.analyze.txt
+    │   ├── test_like.generate.txt
+    │   ├── test_like.json.txt
+    │   ├── test_like.pretty.txt
+    │   ├── test_nested_cast.analyze.txt
+    │   ├── test_nested_cast.generate.txt
+    │   ├── test_nested_cast.json.txt
+    │   └── test_nested_cast.pretty.txt
+    ├── diff
+    │   ├── test_case.analyze.diff
+    │   ├── test_cast.analyze.diff
+    │   ├── test_coalesce_nullif.analyze.diff
+    │   └── test_in.analyze.diff
+    └── output
+        ├── sample.analyze.txt
+        ├── sample.generate.txt
+        ├── sample.json.txt
+        ├── sample.pretty.txt
+        ├── test_between.analyze.txt
+        ├── test_between.generate.txt
+        ├── test_between.json.txt
+        ├── test_between.pretty.txt
+        ├── test_call_graph.analyze.txt
+        ├── test_call_graph.generate.txt
+        ├── test_call_graph.json.txt
+        ├── test_call_graph.pretty.txt
+        ├── test_case.analyze.txt
+        ├── test_case.generate.txt
+        ├── test_case.json.txt
+        ├── test_case_nested_if.analyze.txt
+        ├── test_case_nested_if.generate.txt
+        ├── test_case_nested_if.json.txt
+        ├── test_case_nested_if.pretty.txt
+        ├── test_case.pretty.txt
+        ├── test_case_searched_only.analyze.txt
+        ├── test_case_searched_only.generate.txt
+        ├── test_case_searched_only.json.txt
+        ├── test_case_searched_only.pretty.txt
+        ├── test_case_simple.analyze.txt
+        ├── test_case_simple.generate.txt
+        ├── test_case_simple.json.txt
+        ├── test_case_simple_only.analyze.txt
+        ├── test_case_simple_only.generate.txt
+        ├── test_case_simple_only.json.txt
+        ├── test_case_simple_only.pretty.txt
+        ├── test_case_simple.pretty.txt
+        ├── test_cast.analyze.txt
+        ├── test_cast.generate.txt
+        ├── test_cast.json.txt
+        ├── test_cast.pretty.txt
+        ├── test_coalesce_nullif.analyze.txt
+        ├── test_coalesce_nullif.generate.txt
+        ├── test_coalesce_nullif.json.txt
+        ├── test_coalesce_nullif.pretty.txt
+        ├── test_in.analyze.txt
+        ├── test_in.generate.txt
+        ├── test_in.json.txt
+        ├── test_in.pretty.txt
+        ├── test_is_null.analyze.txt
+        ├── test_is_null.generate.txt
+        ├── test_is_null.json.txt
+        ├── test_is_null.pretty.txt
+        ├── test_like.analyze.txt
+        ├── test_like.generate.txt
+        ├── test_like.json.txt
+        ├── test_like.pretty.txt
+        ├── test_nested_cast.analyze.txt
+        ├── test_nested_cast.generate.txt
+        ├── test_nested_cast.json.txt
+        └── test_nested_cast.pretty.txt
 
-13 directories, 36 files
+16 directories, 157 files
 ```
 
 ## Isi Kode Berdasarkan File
+
+### File: `scripts/diff.sh`
+
+```text
+#!/bin/bash
+# scripts/diff.sh - Show differences
+
+BINARY="./esql-ast"
+BASELINE_DIR="tests/baseline"
+OUTPUT_DIR="tests/output"
+EXAMPLES_DIR="examples"
+
+mkdir -p "$OUTPUT_DIR"
+
+for f in "$EXAMPLES_DIR"/*.esql; do
+    name=$(basename "$f" .esql)
+    echo "=== $name ==="
+    
+    for mode in pretty json generate analyze; do
+        if [ -f "$BASELINE_DIR/$name.$mode.txt" ]; then
+            "$BINARY" -f "$f" -"$mode" > "$OUTPUT_DIR/$name.$mode.txt" 2>&1
+            diff -u "$BASELINE_DIR/$name.$mode.txt" "$OUTPUT_DIR/$name.$mode.txt" || echo "  No changes for $mode"
+        else
+            echo "  No baseline for $mode"
+        fi
+    done
+    echo ""
+done
+```
+
+---
+
+### File: `scripts/test.sh`
+
+```text
+#!/bin/bash
+# scripts/test.sh - Simple test runner
+
+BINARY="./esql-ast"
+BASELINE_DIR="tests/baseline"
+OUTPUT_DIR="tests/output"
+EXAMPLES_DIR="examples"
+
+mkdir -p "$BASELINE_DIR" "$OUTPUT_DIR"
+
+echo "Running tests..."
+echo ""
+
+for f in "$EXAMPLES_DIR"/*.esql; do
+    name=$(basename "$f" .esql)
+    echo "Testing: $name"
+    
+    passed=0
+    total=0
+    
+    for mode in pretty json generate analyze; do
+        total=$((total + 1))
+        "$BINARY" -f "$f" -"$mode" > "$OUTPUT_DIR/$name.$mode.txt" 2>&1
+        
+        if [ -f "$BASELINE_DIR/$name.$mode.txt" ]; then
+            if diff -q "$BASELINE_DIR/$name.$mode.txt" "$OUTPUT_DIR/$name.$mode.txt" > /dev/null 2>&1; then
+                echo "  ✅ $mode"
+                passed=$((passed + 1))
+            else
+                echo "  ❌ $mode"
+                mkdir -p tests/diff
+                diff -u "$BASELINE_DIR/$name.$mode.txt" "$OUTPUT_DIR/$name.$mode.txt" > "tests/diff/$name.$mode.diff" 2>&1
+            fi
+        else
+            echo "  ⚠️  No baseline for $mode (run: make baseline-$name)"
+        fi
+    done
+    
+    if [ $passed -eq $total ]; then
+        echo "  ✅ $name PASSED ($passed/$total)"
+    else
+        echo "  ❌ $name FAILED ($passed/$total)"
+    fi
+    echo ""
+done
+```
+
+---
+
+### File: `scripts/baseline.sh`
+
+```text
+#!/bin/bash
+# scripts/baseline.sh - Generate all baselines
+
+BINARY="./esql-ast"
+BASELINE_DIR="tests/baseline"
+EXAMPLES_DIR="examples"
+
+mkdir -p "$BASELINE_DIR"
+
+echo "Generating baselines..."
+
+for f in "$EXAMPLES_DIR"/*.esql; do
+    name=$(basename "$f" .esql)
+    echo "  $name..."
+    "$BINARY" -f "$f" -pretty > "$BASELINE_DIR/$name.pretty.txt" 2>&1
+    "$BINARY" -f "$f" -json > "$BASELINE_DIR/$name.json.txt" 2>&1
+    "$BINARY" -f "$f" -generate > "$BASELINE_DIR/$name.generate.txt" 2>&1
+    "$BINARY" -f "$f" -analyze > "$BASELINE_DIR/$name.analyze.txt" 2>&1
+done
+
+echo "✅ Baselines generated!"
+```
+
+---
 
 ### File: `go.mod`
 
@@ -102,6 +337,161 @@ CREATE COMPUTE MODULE TestBetween
     -- Nested BETWEEN with expressions
     IF (score + 5) BETWEEN 80 AND 100 THEN
         SET result = 3;
+    END IF;
+END MODULE;
+```
+
+---
+
+### File: `examples/test_like.esql`
+
+```text
+CREATE COMPUTE MODULE TestLike
+    DECLARE name STRING;
+    DECLARE result INTEGER;
+    DECLARE status STRING;
+    
+    SET name = 'John Doe';
+    
+    -- Basic LIKE
+    IF name LIKE 'John%' THEN
+        SET result = 1;
+    END IF;
+    
+    -- NOT LIKE
+    IF name NOT LIKE '%Smith%' THEN
+        SET result = 2;
+    END IF;
+    
+    -- LIKE in CASE
+    SET status = CASE 
+        WHEN name LIKE 'A%' THEN 'Starts with A'
+        WHEN name LIKE '%Doe' THEN 'Ends with Doe'
+        ELSE 'Other'
+    END;
+    
+    -- LIKE with underscore
+    IF name LIKE 'J__n%' THEN
+        SET result = 3;
+    END IF;
+END MODULE;
+```
+
+---
+
+### File: `examples/test_coalesce_nullif.esql`
+
+```text
+CREATE COMPUTE MODULE TestCoalesceNullIf
+    DECLARE var1 INTEGER;
+    DECLARE var2 INTEGER;
+    DECLARE var3 INTEGER;
+    DECLARE result INTEGER;
+    DECLARE resultStr STRING;
+    
+    -- Test data
+    SET var1 = NULL;
+    SET var2 = 10;
+    SET var3 = 20;
+    
+    -- COALESCE - returns first non-NULL
+    SET result = COALESCE(var1, var2, var3, 0);
+    
+    -- COALESCE with all NULL
+    SET result = COALESCE(NULL, NULL, NULL, 0);
+    
+    -- COALESCE with strings
+    DECLARE str1 STRING;
+    DECLARE str2 STRING;
+    SET str1 = NULL;
+    SET str2 = 'World';
+    SET resultStr = COALESCE(str1, str2, 'Default');
+    
+    -- COALESCE in IF condition
+    IF COALESCE(var1, var2, 0) > 5 THEN
+        SET result = 100;
+    END IF;
+    
+    -- COALESCE in CASE
+    SET result = CASE 
+        WHEN COALESCE(var1, var2, 0) = 10 THEN 1
+        ELSE 0
+    END;
+    
+    -- NULLIF with equal values
+    SET result = NULLIF(10, 10);
+    
+    -- NULLIF with different values
+    SET result = NULLIF(10, 20);
+    
+    -- NULLIF with NULL as first arg
+    SET result = NULLIF(NULL, 10);
+    
+    -- NULLIF with NULL as second arg
+    SET result = NULLIF(10, NULL);
+    
+    -- NULLIF with both NULL
+    SET result = NULLIF(NULL, NULL);
+    
+    -- NULLIF in IF condition
+    IF NULLIF(var2, 10) IS NULL THEN
+        SET result = 200;
+    END IF;
+    
+    -- NULLIF in CASE
+    SET result = CASE 
+        WHEN NULLIF(var2, 10) IS NULL THEN 1
+        ELSE 0
+    END;
+    
+    -- COALESCE with NULLIF
+    SET result = COALESCE(NULLIF(var2, 10), NULLIF(var3, 20), 999);
+    
+    -- Nested NULLIF
+    SET result = NULLIF(NULLIF(10, 10), 10);
+    
+END MODULE;
+```
+
+---
+
+### File: `examples/test_in.esql`
+
+```text
+CREATE COMPUTE MODULE TestIn
+    DECLARE score INTEGER;
+    DECLARE result INTEGER;
+    DECLARE status STRING;
+    
+    SET score = 85;
+    
+    -- Basic IN
+    IF score IN (80, 90, 100) THEN
+        SET result = 1;
+    END IF;
+    
+    -- NOT IN
+    IF score NOT IN (1, 2, 3) THEN
+        SET result = 2;
+    END IF;
+    
+    -- IN with strings
+    DECLARE name STRING;
+    SET name = 'John';
+    IF name IN ('John', 'Jane', 'Bob') THEN
+        SET result = 3;
+    END IF;
+    
+    -- IN in CASE
+    SET status = CASE 
+        WHEN score IN (90, 100) THEN 'Excellent'
+        WHEN score IN (70, 80) THEN 'Good'
+        ELSE 'Average'
+    END;
+    
+    -- Nested IN with expressions
+    IF (score + 5) IN (85, 90, 95) THEN
+        SET result = 4;
     END IF;
 END MODULE;
 ```
@@ -265,6 +655,44 @@ END MODULE;
 
 ---
 
+### File: `examples/test_call_graph.esql`
+
+```text
+CREATE COMPUTE MODULE TestCallGraph
+    DECLARE score INTEGER;
+    DECLARE result INTEGER;
+    
+    CREATE PROCEDURE ProcA()
+    BEGIN
+        CALL ProcB();
+        SET score = 10;
+    END;
+    
+    CREATE PROCEDURE ProcB()
+    BEGIN
+        CALL ProcC();
+        SET score = 20;
+    END;
+    
+    CREATE PROCEDURE ProcC()
+    BEGIN
+        SET score = 30;
+    END;
+    
+    CREATE FUNCTION FuncA() RETURNS INTEGER
+    BEGIN
+        RETURN score + 10;
+    END;
+    
+    -- Main
+    CALL ProcA();
+    SET result = FuncA();
+END MODULE;
+
+```
+
+---
+
 ### File: `examples/test_case_nested_if.esql`
 
 ```text
@@ -309,6 +737,79 @@ CREATE COMPUTE MODULE TestIsNull
         ELSE 0
     END;
 END MODULE;
+```
+
+---
+
+### File: `generate_doc.sh`
+
+```text
+#!/bin/bash
+
+OUTPUT_FILE="DOC.md"
+
+echo "📝 Menyusun dokumentasi ke $OUTPUT_FILE..."
+
+# Tulis Header Utama
+cat << 'EOF' > "$OUTPUT_FILE"
+# Dokumentasi Struktur & Kode Project
+
+Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder dan isi kode di dalam project ini.
+
+## Struktur Project (Tree)
+
+```text
+EOF
+
+# Jalankan perintah tree jika ada, jika tidak pakai find untuk simulasi tree sederhana
+if command -v tree &> /dev/null; then
+    tree -I "node_modules|.git|vendor|.next|dist" >> "$OUTPUT_FILE"
+else
+    find . -not -path '*/.*' -not -path './vendor*' -not -path './node_modules*' | sed -e 's/^[^\/]*\//⎹  /' -e 's/\/[^\/]*$/⎹__/' >> "$OUTPUT_FILE"
+fi
+
+echo '```' >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+echo "## Isi Kode Berdasarkan File" >> "$OUTPUT_FILE"
+echo "" >> "$OUTPUT_FILE"
+
+# Mencari file kode yang valid
+find . -type f \( -name "*.go" -o -name "go.mod" -o -name "*.js" -o -name "*.ts" -o -name "*.py" -o -name "*.php" -o -name "*.json" -o -name "*.html" -o -name "*.css" -o -name "*.esql" -o -name "*.sh" \) \
+-not -path "*/.*" \
+-not -path "./vendor/*" \
+-not -path "./node_modules/*" \
+-not -path "./dist/*" \
+-not -path "./.next/*" | while read -r file; do
+    
+    # Hapus `./` di depan nama file agar rapi
+    clean_path=$(echo "$file" | sed 's|^\./||')
+    
+    echo "### File: \`$clean_path\`" >> "$OUTPUT_FILE"
+    echo "" >> "$OUTPUT_FILE"
+    
+    # Ambil ekstensi file
+    ext="${file##*.}"
+    
+    # Tentukan syntax highlighting menggunakan kutip tunggal agar aman
+    if [[ "$file" == *"go.mod" ]]; then
+        echo '```text' >> "$OUTPUT_FILE"
+    elif [[ "$ext" =~ ^(go|js|ts|py|php|json|html|css)$ ]]; then
+        echo '```'"$ext" >> "$OUTPUT_FILE"
+    else
+        echo '```text' >> "$OUTPUT_FILE"
+    fi
+    
+    # Masukkan isi file
+    cat "$file" >> "$OUTPUT_FILE"
+    
+    echo "" >> "$OUTPUT_FILE"
+    echo '```' >> "$OUTPUT_FILE"
+    echo "" >> "$OUTPUT_FILE"
+    echo "---" >> "$OUTPUT_FILE"
+    echo "" >> "$OUTPUT_FILE"
+done
+
+echo "✅ Berhasil! File $OUTPUT_FILE telah dibuat."
 ```
 
 ---
@@ -442,7 +943,11 @@ const (
 	IsNullNode         NodeType = "IsNull"
 	IsNotNullNode      NodeType = "IsNotNull"
 	BetweenNode        NodeType = "Between"
-	ParenthesizedNode  NodeType = "Parenthesized" // Tambahkan ini
+	ParenthesizedNode  NodeType = "Parenthesized"
+	LikeNode           NodeType = "Like"
+	InNode             NodeType = "In"
+	CoalesceNode       NodeType = "Coalesce"
+	NullIfNode         NodeType = "NullIf"
 )
 
 // Position represents a position in source code
@@ -866,13 +1371,25 @@ func (p *Parser) parsePrimary() ASTNode {
 		debugPrint("    [parsePrimary] after CAST: token=%s, literal='%s'\n",
 			p.curToken.Type, p.curToken.Literal)
 		return result
+	case token.COALESCE:
+		result := p.parseCoalesce()
+		debugPrint("    [parsePrimary] after COALESCE: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
+	case token.NULLIF:
+		result := p.parseNullIf()
+		debugPrint("    [parsePrimary] after NULLIF: token=%s, literal='%s'\n",
+			p.curToken.Type, p.curToken.Literal)
+		return result
 	case token.DOT:
 		debugPrint("    [parsePrimary] WARNING: DOT without identifier, skipping...\n")
 		p.nextToken()
 		return ASTNode{}
 	default:
-		debugPrint("    [parsePrimary] UNKNOWN: token=%s, literal='%s'\n",
+		// Kalau nemu token yang gak dikenal, consume biar gak loop
+		debugPrint("    [parsePrimary] UNKNOWN: token=%s, literal='%s', consuming...\n",
 			p.curToken.Type, p.curToken.Literal)
+		p.nextToken() // ← INI PENTING! consume token biar gak loop
 		return ASTNode{}
 	}
 }
@@ -1210,6 +1727,126 @@ func (p *Parser) parseWhen(isSimpleCase bool) ASTNode {
 	return node
 }
 
+func (p *Parser) parseCoalesce() ASTNode {
+	debugPrint("    [parseCoalesce] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	node := NewASTNode(CoalesceNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	node.Value = "COALESCE"
+	startLine := p.curToken.Line
+	startCol := p.curToken.Column
+	p.nextToken() // consume COALESCE
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after COALESCE at line %d", p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume '('
+
+	// Parse arguments (at least 1)
+	var args []ASTNode
+	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
+		arg := p.parseExpression()
+		if arg.Type != "" {
+			args = append(args, arg)
+		}
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+
+	if len(args) < 1 {
+		p.errors = append(p.errors,
+			fmt.Sprintf("COALESCE requires at least 1 argument at line %d", p.curToken.Line))
+		return node
+	}
+
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in COALESCE expression at line %d", p.curToken.Line))
+		return node
+	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
+	p.nextToken() // consume ')'
+
+	// Add all arguments as children
+	for _, arg := range args {
+		node.AddChild(arg)
+	}
+
+	// Span dari COALESCE sampai ')'
+	node.Span.Start = Position{Line: startLine, Column: startCol}
+	node.Span.End = Position{Line: endLine, Column: endCol}
+
+	debugPrint("    [parseCoalesce] END: returning COALESCE node with %d args\n", len(args))
+	return node
+}
+
+// parseNullIf menangani NULLIF(expr1, expr2)
+func (p *Parser) parseNullIf() ASTNode {
+	debugPrint("    [parseNullIf] START: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	node := NewASTNode(NullIfNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+	node.Value = "NULLIF"
+	startLine := p.curToken.Line
+	startCol := p.curToken.Column
+	p.nextToken() // consume NULLIF
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after NULLIF at line %d", p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume '('
+
+	// Parse first argument
+	arg1 := p.parseExpression()
+	if arg1.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected expression in NULLIF at line %d", p.curToken.Line))
+		return node
+	}
+	node.AddChild(arg1)
+
+	// Expect ','
+	if p.curToken.Type != token.COMMA {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ',' in NULLIF expression at line %d", p.curToken.Line))
+		return node
+	}
+	p.nextToken() // consume ','
+
+	// Parse second argument
+	arg2 := p.parseExpression()
+	if arg2.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected expression in NULLIF at line %d", p.curToken.Line))
+		return node
+	}
+	node.AddChild(arg2)
+
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in NULLIF expression at line %d", p.curToken.Line))
+		return node
+	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
+	p.nextToken() // consume ')'
+
+	// Span dari NULLIF sampai ')'
+	node.Span.Start = Position{Line: startLine, Column: startCol}
+	node.Span.End = Position{Line: endLine, Column: endCol}
+
+	debugPrint("    [parseNullIf] END: returning NULLIF node\n")
+	return node
+}
+
 ```
 
 ---
@@ -1251,10 +1888,17 @@ func (p *Parser) parseExpression() ASTNode {
 	debugPrint("  [parseExpression] token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
+	// STOP - jangan parse jika token bukan bagian dari expression
 	if p.curToken.Type == token.END || p.curToken.Type == token.THEN ||
 		p.curToken.Type == token.ELSE || p.curToken.Type == token.WHEN ||
-		p.curToken.Type == token.EOF {
-		debugPrint("  [parseExpression] STOP: token is %s, not an expression\n", p.curToken.Type)
+		p.curToken.Type == token.EOF ||
+		p.curToken.Type == token.RETURNS ||
+		p.curToken.Type == token.BEGIN ||
+		p.curToken.Type == token.MODULE ||
+		p.curToken.Type == token.FUNCTION ||
+		p.curToken.Type == token.PROCEDURE {
+		debugPrint("  [parseExpression] STOP: token is %s, consuming...\n", p.curToken.Type)
+		p.nextToken() // ← CONSUME token biar gak loop!
 		return ASTNode{}
 	}
 
@@ -1332,152 +1976,181 @@ func (p *Parser) parseComparison() ASTNode {
 	debugPrint("    [parseComparison] after parseAdditive: token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 
-	// Handle IS NULL / IS NOT NULL
-	if p.curToken.Type == token.ISNULL || p.curToken.Type == token.NOTNULL {
-		debugPrint("    [parseComparison] found IS NULL/NOT NULL: %s\n", p.curToken.Literal)
-		tok := p.curToken
-		p.nextToken()
+	// Cek operator-operator yang mungkin muncul setelah node
+	return p.parseComparisonSuffix(node)
+}
 
-		var nullNode ASTNode
-		if tok.Type == token.ISNULL {
-			nullNode = NewASTNode(IsNullNode, "IS NULL", tok.Line, tok.Column)
-		} else {
-			nullNode = NewASTNode(IsNotNullNode, "IS NOT NULL", tok.Line, tok.Column)
-		}
-		nullNode.AddChild(node)
-		nullNode.Span = combineSpan(node, nullNode)
-		debugPrint("    [parseComparison] returning IS NULL/NOT NULL node\n")
-		return nullNode
+// parseComparisonSuffix menangani operator setelah node kiri
+func (p *Parser) parseComparisonSuffix(left ASTNode) ASTNode {
+	switch p.curToken.Type {
+	case token.ISNULL, token.NOTNULL:
+		return p.parseIsNull(left)
+
+	case token.NOT:
+		return p.parseNotOperator(left)
+
+	case token.BETWEEN:
+		return p.parseBetween(left, false)
+
+	case token.LIKE:
+		return p.parseLike(left, false)
+
+	case token.IN: // ← Tambahkan ini
+		return p.parseIn(left, false)
+
+	case token.EQ, token.NOT_EQ, token.LT, token.GT, token.LTE, token.GTE:
+		return p.parseComparisonOperator(left)
+
+	default:
+		return left
 	}
+}
 
-	// Handle NOT ... (including NOT BETWEEN)
-	if p.curToken.Type == token.NOT {
-		debugPrint("    [parseComparison] found NOT, checking next token\n")
-		tok := p.curToken
-		pos := p.position
-		p.nextToken() // consume NOT
+// parseIsNull menangani IS NULL / IS NOT NULL
+func (p *Parser) parseIsNull(left ASTNode) ASTNode {
+	debugPrint("    [parseIsNull] found IS NULL/NOT NULL: %s\n", p.curToken.Literal)
+	tok := p.curToken
+	p.nextToken()
 
-		// Check if next token is BETWEEN
-		if p.curToken.Type == token.BETWEEN {
-			debugPrint("    [parseComparison] found NOT BETWEEN\n")
-			p.nextToken() // consume BETWEEN
-
-			lower := p.parseAdditive()
-			if lower.Type == "" {
-				p.errors = append(p.errors,
-					fmt.Sprintf("expected lower bound in NOT BETWEEN expression at line %d", tok.Line))
-				return node
-			}
-
-			if p.curToken.Type != token.AND {
-				p.errors = append(p.errors,
-					fmt.Sprintf("expected AND in NOT BETWEEN expression, got %s at line %d",
-						p.curToken.Type, p.curToken.Line))
-				return node
-			}
-			p.nextToken()
-
-			upper := p.parseAdditive()
-			if upper.Type == "" {
-				p.errors = append(p.errors,
-					fmt.Sprintf("expected upper bound in NOT BETWEEN expression at line %d", tok.Line))
-				return node
-			}
-
-			// Buat BetweenNode dengan flag Not = true
-			betweenNode := NewASTNode(BetweenNode, "BETWEEN", tok.Line, tok.Column)
-			betweenNode.Not = true
-			betweenNode.AddChild(node)
-			betweenNode.AddChild(lower)
-			betweenNode.AddChild(upper)
-			betweenNode.Span = combineSpans(node, lower, upper)
-
-			debugPrint("    [parseComparison] returning NOT BETWEEN node\n")
-			return betweenNode
-		} else {
-			// Not NOT BETWEEN, rewind and handle as unary NOT
-			debugPrint("    [parseComparison] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
-			p.position = pos
-			p.curToken = p.tokens[p.position]
-
-			// Parse as unary NOT
-			tok = p.curToken
-			p.nextToken()
-			right := p.parseComparison()
-			if right.Type != "" {
-				unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
-				unaryNode.AddChild(right)
-				unaryNode.Span = combineSpan(
-					NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
-					right,
-				)
-				return unaryNode
-			}
-			return node
-		}
+	var nullNode ASTNode
+	if tok.Type == token.ISNULL {
+		nullNode = NewASTNode(IsNullNode, "IS NULL", tok.Line, tok.Column)
+	} else {
+		nullNode = NewASTNode(IsNotNullNode, "IS NOT NULL", tok.Line, tok.Column)
 	}
+	nullNode.AddChild(left)
+	nullNode.Span = combineSpan(left, nullNode)
+	debugPrint("    [parseIsNull] returning IS NULL/NOT NULL node\n")
+	return nullNode
+}
 
-	// Handle BETWEEN (regular, tanpa NOT)
-	if p.curToken.Type == token.BETWEEN {
-		debugPrint("    [parseComparison] found BETWEEN\n")
-		tok := p.curToken
+// parseNotOperator menangani NOT (termasuk NOT BETWEEN, NOT LIKE)
+func (p *Parser) parseNotOperator(left ASTNode) ASTNode {
+	debugPrint("    [parseNotOperator] found NOT, checking next token\n")
+	tok := p.curToken
+	pos := p.position
+	p.nextToken() // consume NOT
+
+	switch p.curToken.Type {
+	case token.BETWEEN:
+		debugPrint("    [parseNotOperator] found NOT BETWEEN\n")
+		return p.parseBetween(left, true)
+
+	case token.LIKE:
+		debugPrint("    [parseNotOperator] found NOT LIKE\n")
+		return p.parseLike(left, true)
+
+	case token.IN: // ← Tambahkan ini
+		debugPrint("    [parseNotOperator] found NOT IN\n")
+		return p.parseIn(left, true)
+
+	default:
+		// Not NOT BETWEEN/LIKE/IN, treat as unary NOT
+		debugPrint("    [parseNotOperator] NOT followed by %s, treating as unary NOT\n", p.curToken.Type)
+		p.position = pos
+		p.curToken = p.tokens[p.position]
+
+		tok = p.curToken
 		p.nextToken()
-
-		lower := p.parseAdditive()
-		if lower.Type == "" {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
-			return node
-		}
-
-		if p.curToken.Type != token.AND {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
-					p.curToken.Type, p.curToken.Line))
-			return node
-		}
-		p.nextToken()
-
-		upper := p.parseAdditive()
-		if upper.Type == "" {
-			p.errors = append(p.errors,
-				fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
-			return node
-		}
-
-		betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
-		betweenNode.Not = false
-		betweenNode.AddChild(node)
-		betweenNode.AddChild(lower)
-		betweenNode.AddChild(upper)
-		betweenNode.Span = combineSpans(node, lower, upper)
-
-		debugPrint("    [parseComparison] returning BETWEEN node\n")
-		return betweenNode
-	}
-
-	// Handle regular comparison operators
-	if p.curToken.Type == token.EQ || p.curToken.Type == token.NOT_EQ ||
-		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
-		p.curToken.Type == token.LTE || p.curToken.Type == token.GTE {
-		debugPrint("    [parseComparison] found operator: %s\n", p.curToken.Literal)
-		tok := p.curToken
-		p.nextToken()
-		right := p.parseAdditive()
+		right := p.parseComparison()
 		if right.Type != "" {
-			compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
-			compNode.AddChild(node)
-			compNode.AddChild(right)
-			compNode.Span = combineSpan(node, right)
-			debugPrint("    [parseComparison] returning comparison node\n")
-			return compNode
+			unaryNode := NewASTNode(UnaryOpNode, tok.Literal, tok.Line, tok.Column)
+			unaryNode.AddChild(right)
+			unaryNode.Span = combineSpan(
+				NewASTNode(IdentifierNode, tok.Literal, tok.Line, tok.Column),
+				right,
+			)
+			return unaryNode
 		}
+		return left
+	}
+}
+
+// parseBetween menangani BETWEEN / NOT BETWEEN
+func (p *Parser) parseBetween(left ASTNode, isNot bool) ASTNode {
+	debugPrint("    [parseBetween] parsing BETWEEN (not=%v)\n", isNot)
+	tok := p.curToken
+	if isNot {
+		p.nextToken() // consume BETWEEN (sudah di-consume di parseNotOperator)
+	} else {
+		p.nextToken() // consume BETWEEN
 	}
 
-	debugPrint("    [parseComparison] END: token=%s, literal='%s'\n",
-		p.curToken.Type, p.curToken.Literal)
+	lower := p.parseAdditive()
+	if lower.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected lower bound in BETWEEN expression at line %d", tok.Line))
+		return left
+	}
 
-	return node
+	if p.curToken.Type != token.AND {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected AND in BETWEEN expression, got %s at line %d",
+				p.curToken.Type, p.curToken.Line))
+		return left
+	}
+	p.nextToken()
+
+	upper := p.parseAdditive()
+	if upper.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected upper bound in BETWEEN expression at line %d", tok.Line))
+		return left
+	}
+
+	betweenNode := NewASTNode(BetweenNode, tok.Literal, tok.Line, tok.Column)
+	betweenNode.Not = isNot
+	betweenNode.AddChild(left)
+	betweenNode.AddChild(lower)
+	betweenNode.AddChild(upper)
+	betweenNode.Span = combineSpans(left, lower, upper)
+
+	debugPrint("    [parseBetween] returning BETWEEN node (not=%v)\n", isNot)
+	return betweenNode
+}
+
+// parseLike menangani LIKE / NOT LIKE
+func (p *Parser) parseLike(left ASTNode, isNot bool) ASTNode {
+	debugPrint("    [parseLike] parsing LIKE (not=%v)\n", isNot)
+	tok := p.curToken
+	if isNot {
+		p.nextToken() // consume LIKE (sudah di-consume di parseNotOperator)
+	} else {
+		p.nextToken() // consume LIKE
+	}
+
+	pattern := p.parseAdditive()
+	if pattern.Type == "" {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected pattern in LIKE expression at line %d", tok.Line))
+		return left
+	}
+
+	likeNode := NewASTNode(LikeNode, tok.Literal, tok.Line, tok.Column)
+	likeNode.Not = isNot
+	likeNode.AddChild(left)
+	likeNode.AddChild(pattern)
+	likeNode.Span = combineSpans(left, pattern)
+
+	debugPrint("    [parseLike] returning LIKE node (not=%v)\n", isNot)
+	return likeNode
+}
+
+// parseComparisonOperator menangani operator comparison biasa (=, <, >, dll)
+func (p *Parser) parseComparisonOperator(left ASTNode) ASTNode {
+	debugPrint("    [parseComparisonOperator] found operator: %s\n", p.curToken.Literal)
+	tok := p.curToken
+	p.nextToken()
+	right := p.parseAdditive()
+	if right.Type != "" {
+		compNode := NewASTNode(ComparisonNode, tok.Literal, tok.Line, tok.Column)
+		compNode.AddChild(left)
+		compNode.AddChild(right)
+		compNode.Span = combineSpan(left, right)
+		debugPrint("    [parseComparisonOperator] returning comparison node\n")
+		return compNode
+	}
+	return left
 }
 
 func (p *Parser) parseAdditive() ASTNode {
@@ -1566,6 +2239,66 @@ func (p *Parser) parseUnary() ASTNode {
 	debugPrint("    [parseUnary] END (primary): token=%s, literal='%s'\n",
 		p.curToken.Type, p.curToken.Literal)
 	return result
+}
+
+func (p *Parser) parseIn(left ASTNode, isNot bool) ASTNode {
+	debugPrint("    [parseIn] parsing IN (not=%v)\n", isNot)
+	tok := p.curToken
+	if isNot {
+		p.nextToken() // consume IN (sudah di-consume di parseNotOperator)
+	} else {
+		p.nextToken() // consume IN
+	}
+
+	// Expect '('
+	if p.curToken.Type != token.LPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected '(' after IN expression at line %d", tok.Line))
+		return left
+	}
+	p.nextToken() // consume '('
+
+	// Parse list of values
+	var values []ASTNode
+	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
+		val := p.parseExpression()
+		if val.Type != "" {
+			values = append(values, val)
+		}
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+
+	if p.curToken.Type != token.RPAREN {
+		p.errors = append(p.errors,
+			fmt.Sprintf("expected ')' in IN expression at line %d", tok.Line))
+		return left
+	}
+	endLine := p.curToken.Line
+	endCol := p.curToken.Column + 1
+	p.nextToken() // consume ')'
+
+	// Buat InNode
+	inNode := NewASTNode(InNode, tok.Literal, tok.Line, tok.Column)
+	inNode.Not = isNot
+	inNode.AddChild(left)
+
+	// Tambahkan semua values sebagai children
+	for _, val := range values {
+		inNode.AddChild(val)
+	}
+
+	// Span dari left sampai akhir ')'
+	if len(values) > 0 {
+		inNode.Span = combineSpans(append([]ASTNode{left}, values...)...)
+		inNode.Span.End = Position{Line: endLine, Column: endCol}
+	} else {
+		inNode.Span = combineSpan(left, inNode)
+	}
+
+	debugPrint("    [parseIn] returning IN node (not=%v, values=%d)\n", isNot, len(values))
+	return inNode
 }
 
 ```
@@ -2732,6 +3465,50 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		}
 		return node.Token
 
+	case parser.LikeNode:
+		if len(node.Children) >= 2 {
+			expr := g.generateNode(node.Children[0], 0)
+			pattern := g.generateNode(node.Children[1], 0)
+			if node.Not {
+				return expr + " NOT LIKE " + pattern
+			}
+			return expr + " LIKE " + pattern
+		}
+		return "LIKE"
+
+	case parser.InNode:
+		if len(node.Children) < 2 {
+			return "IN"
+		}
+		expr := g.generateNode(node.Children[0], 0)
+		var values []string
+		for i := 1; i < len(node.Children); i++ {
+			values = append(values, g.generateNode(node.Children[i], 0))
+		}
+		result := expr
+		if node.Not {
+			result += " NOT IN"
+		} else {
+			result += " IN"
+		}
+		result += " (" + strings.Join(values, ", ") + ")"
+		return result
+
+	case parser.CoalesceNode:
+		var args []string
+		for _, child := range node.Children {
+			args = append(args, g.generateNode(child, 0))
+		}
+		return "COALESCE(" + strings.Join(args, ", ") + ")"
+
+	case parser.NullIfNode:
+		if len(node.Children) >= 2 {
+			arg1 := g.generateNode(node.Children[0], 0)
+			arg2 := g.generateNode(node.Children[1], 0)
+			return "NULLIF(" + arg1 + ", " + arg2 + ")"
+		}
+		return "NULLIF()"
+
 	default:
 		var sb strings.Builder
 		if node.Token != "" {
@@ -2970,16 +3747,12 @@ package analyzer
 import (
 	"esql-ast-tool/pkg/parser"
 	"sort"
+	"strconv"
 )
 
-type AnalysisResult struct {
-	Variables        map[string]VariableInfo  `json:"variables"`
-	Functions        map[string]FunctionInfo  `json:"functions"`
-	Procedures       map[string]ProcedureInfo `json:"procedures"`
-	UsedVariables    []string                 `json:"usedVariables"`
-	DefinedVariables []string                 `json:"definedVariables"`
-	Issues           []string                 `json:"issues"`
-}
+// ============================================
+// Struct Definitions
+// ============================================
 
 type VariableInfo struct {
 	Type string `json:"type"`
@@ -2997,6 +3770,46 @@ type ProcedureInfo struct {
 	Line       int      `json:"line"`
 }
 
+type UsageInfo struct {
+	Name     string `json:"name"`
+	Location string `json:"location"` // "line:col"
+	Context  string `json:"context"`  // "DECLARE", "SET", "IF", "CALL", etc.
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+}
+
+type ModuleInfo struct {
+	Name       string   `json:"name"`
+	Line       int      `json:"line"`
+	Procedures []string `json:"procedures"`
+	Functions  []string `json:"functions"`
+	Variables  []string `json:"variables"`
+}
+
+// ============================================
+// Analysis Result
+// ============================================
+
+type AnalysisResult struct {
+	Variables        map[string]VariableInfo  `json:"variables"`
+	Functions        map[string]FunctionInfo  `json:"functions"`
+	Procedures       map[string]ProcedureInfo `json:"procedures"`
+	UsedVariables    []string                 `json:"usedVariables"`
+	DefinedVariables []string                 `json:"definedVariables"`
+	Issues           []string                 `json:"issues"`
+
+	// Relational Info
+	CallGraph        map[string][]string    `json:"callGraph"`        // Caller -> Callees
+	ReverseCallGraph map[string][]string    `json:"reverseCallGraph"` // Callee -> Callers
+	UsageMap         map[string][]UsageInfo `json:"usageMap"`         // Name -> Usage locations
+	ImpactMap        map[string][]string    `json:"impactMap"`        // Change X -> Affects Y
+	ModuleInfo       ModuleInfo             `json:"moduleInfo"`
+}
+
+// ============================================
+// Analyzer
+// ============================================
+
 type Analyzer struct {
 	variables        map[string]VariableInfo
 	functions        map[string]FunctionInfo
@@ -3004,6 +3817,19 @@ type Analyzer struct {
 	usedVariables    map[string]bool
 	definedVariables map[string]bool
 	issues           []string
+
+	// Relational tracking
+	callGraph        map[string][]string
+	reverseCallGraph map[string][]string
+	usageMap         map[string][]UsageInfo
+	currentScope     string
+
+	// Module info - gunakan map untuk cegah duplikasi
+	moduleName       string
+	moduleLine       int
+	moduleProcedures map[string]bool // ← Ubah ke map
+	moduleFunctions  map[string]bool // ← Ubah ke map
+	moduleVariables  map[string]bool // ← Ubah ke map
 }
 
 func NewAnalyzer() *Analyzer {
@@ -3014,74 +3840,219 @@ func NewAnalyzer() *Analyzer {
 		usedVariables:    make(map[string]bool),
 		definedVariables: make(map[string]bool),
 		issues:           []string{},
+		callGraph:        make(map[string][]string),
+		reverseCallGraph: make(map[string][]string),
+		usageMap:         make(map[string][]UsageInfo),
+		moduleProcedures: make(map[string]bool), // ← Ubah
+		moduleFunctions:  make(map[string]bool), // ← Ubah
+		moduleVariables:  make(map[string]bool), // ← Ubah
 	}
 }
 
+// ============================================
+// Main Analysis
+// ============================================
+
 func (a *Analyzer) Analyze(program parser.Program) AnalysisResult {
+	// Hanya analyze sekali
 	for _, stmt := range program.Statements {
 		a.analyzeNode(stmt)
 	}
 
-	// Sort variable names for consistent output
-	var varNames []string
-	for name := range a.variables {
-		varNames = append(varNames, name)
+	// Konversi map ke slice untuk output
+	var procedures []string
+	for name := range a.moduleProcedures {
+		procedures = append(procedures, name)
 	}
-	sort.Strings(varNames)
+	sort.Strings(procedures)
 
-	// Rebuild variables with sorted order
-	sortedVariables := make(map[string]VariableInfo)
-	for _, name := range varNames {
-		sortedVariables[name] = a.variables[name]
+	var functions []string
+	for name := range a.moduleFunctions {
+		functions = append(functions, name)
 	}
+	sort.Strings(functions)
 
-	// Sort function names
-	var funcNames []string
-	for name := range a.functions {
-		funcNames = append(funcNames, name)
+	var variables []string
+	for name := range a.moduleVariables {
+		variables = append(variables, name)
 	}
-	sort.Strings(funcNames)
+	sort.Strings(variables)
 
-	sortedFunctions := make(map[string]FunctionInfo)
-	for _, name := range funcNames {
-		sortedFunctions[name] = a.functions[name]
-	}
-
-	// Sort procedure names
-	var procNames []string
-	for name := range a.procedures {
-		procNames = append(procNames, name)
-	}
-	sort.Strings(procNames)
-
-	sortedProcedures := make(map[string]ProcedureInfo)
-	for _, name := range procNames {
-		sortedProcedures[name] = a.procedures[name]
-	}
-
-	// Sort used variables
-	usedVars := make([]string, 0, len(a.usedVariables))
-	for v := range a.usedVariables {
-		usedVars = append(usedVars, v)
-	}
-	sort.Strings(usedVars)
-
-	// Sort defined variables
-	definedVars := make([]string, 0, len(a.definedVariables))
-	for v := range a.definedVariables {
-		definedVars = append(definedVars, v)
-	}
-	sort.Strings(definedVars)
+	impactMap := a.buildImpactMap()
 
 	return AnalysisResult{
-		Variables:        sortedVariables,
-		Functions:        sortedFunctions,
-		Procedures:       sortedProcedures,
-		UsedVariables:    usedVars,
-		DefinedVariables: definedVars,
+		Variables:        a.sortVariables(),
+		Functions:        a.sortFunctions(),
+		Procedures:       a.sortProcedures(),
+		UsedVariables:    a.sortUsedVariables(),
+		DefinedVariables: a.sortDefinedVariables(),
 		Issues:           a.issues,
+		CallGraph:        a.sortCallGraph(),
+		ReverseCallGraph: a.sortReverseCallGraph(),
+		UsageMap:         a.usageMap,
+		ImpactMap:        impactMap,
+		ModuleInfo: ModuleInfo{
+			Name:       a.moduleName,
+			Line:       a.moduleLine,
+			Procedures: procedures,
+			Functions:  functions,
+			Variables:  variables,
+		},
 	}
 }
+
+// ============================================
+// Sorting Helpers
+// ============================================
+
+func (a *Analyzer) sortVariables() map[string]VariableInfo {
+	var names []string
+	for name := range a.variables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make(map[string]VariableInfo)
+	for _, name := range names {
+		result[name] = a.variables[name]
+	}
+	return result
+}
+
+func (a *Analyzer) sortFunctions() map[string]FunctionInfo {
+	var names []string
+	for name := range a.functions {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make(map[string]FunctionInfo)
+	for _, name := range names {
+		result[name] = a.functions[name]
+	}
+	return result
+}
+
+func (a *Analyzer) sortProcedures() map[string]ProcedureInfo {
+	var names []string
+	for name := range a.procedures {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	result := make(map[string]ProcedureInfo)
+	for _, name := range names {
+		result[name] = a.procedures[name]
+	}
+	return result
+}
+
+func (a *Analyzer) sortUsedVariables() []string {
+	var vars []string
+	for v := range a.usedVariables {
+		vars = append(vars, v)
+	}
+	sort.Strings(vars)
+	return vars
+}
+
+func (a *Analyzer) sortDefinedVariables() []string {
+	var vars []string
+	for v := range a.definedVariables {
+		vars = append(vars, v)
+	}
+	sort.Strings(vars)
+	return vars
+}
+
+func (a *Analyzer) sortCallGraph() map[string][]string {
+	result := make(map[string][]string)
+	var keys []string
+	for k := range a.callGraph {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vals := a.callGraph[k]
+		sort.Strings(vals)
+		result[k] = vals
+	}
+	return result
+}
+
+func (a *Analyzer) sortReverseCallGraph() map[string][]string {
+	result := make(map[string][]string)
+	var keys []string
+	for k := range a.reverseCallGraph {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vals := a.reverseCallGraph[k]
+		sort.Strings(vals)
+		result[k] = vals
+	}
+	return result
+}
+
+// ============================================
+// Impact Analysis
+// ============================================
+
+func (a *Analyzer) buildImpactMap() map[string][]string {
+	impact := make(map[string][]string)
+
+	// Untuk setiap variable, cari di mana dia digunakan
+	for varName := range a.variables {
+		if usages, ok := a.usageMap[varName]; ok {
+			// Gunakan map untuk deduplicate
+			seen := make(map[string]bool)
+			var affected []string
+			for _, u := range usages {
+				key := u.Context + " at line " + strconv.Itoa(u.Line)
+				if !seen[key] {
+					seen[key] = true
+					affected = append(affected, key)
+				}
+			}
+			if len(affected) > 0 {
+				impact[varName] = affected
+			}
+		}
+	}
+
+	// Untuk setiap procedure/function, cari siapa yang memanggilnya
+	for name := range a.procedures {
+		if callers, ok := a.reverseCallGraph[name]; ok {
+			// Deduplicate callers
+			seen := make(map[string]bool)
+			var unique []string
+			for _, caller := range callers {
+				if !seen[caller] {
+					seen[caller] = true
+					unique = append(unique, caller)
+				}
+			}
+			impact[name] = unique
+		}
+	}
+	for name := range a.functions {
+		if callers, ok := a.reverseCallGraph[name]; ok {
+			seen := make(map[string]bool)
+			var unique []string
+			for _, caller := range callers {
+				if !seen[caller] {
+					seen[caller] = true
+					unique = append(unique, caller)
+				}
+			}
+			impact[name] = unique
+		}
+	}
+
+	return impact
+}
+
+// ============================================
+// Node Analysis
+// ============================================
 
 func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 	if node.Type == "" {
@@ -3089,6 +4060,17 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 	}
 
 	switch node.Type {
+	case parser.ModuleNode:
+		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+			if name, ok := node.Children[0].Value.(string); ok {
+				a.moduleName = name
+				a.moduleLine = node.Span.Start.Line
+			}
+		}
+		for _, child := range node.Children {
+			a.analyzeNode(child)
+		}
+
 	case parser.DeclareNode:
 		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
 			if name, ok := node.Children[0].Value.(string); ok {
@@ -3100,18 +4082,45 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				}
 				a.variables[name] = VariableInfo{
 					Type: varType,
-					Line: node.Span.Start.Line, // Gunakan Span
+					Line: node.Span.Start.Line,
 				}
 				a.definedVariables[name] = true
+				a.moduleVariables[name] = true // ← Pakai map
+
+				a.usageMap[name] = append(a.usageMap[name], UsageInfo{
+					Name:     name,
+					Location: formatLocation(node.Span.Start.Line, node.Span.Start.Column),
+					Context:  "DECLARE",
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+				})
+			}
+		}
+	case parser.SetNode:
+		if len(node.Children) > 0 {
+			if node.Children[0].Type == parser.BlockNode && len(node.Children[0].Children) > 0 {
+				a.analyzeNode(node.Children[0].Children[0])
+			}
+		}
+		if len(node.Children) > 1 {
+			if node.Children[1].Type == parser.BlockNode && len(node.Children[1].Children) > 0 {
+				a.analyzeNode(node.Children[1].Children[0])
 			}
 		}
 
-	case parser.SetNode:
+	case parser.IfNode:
 		if len(node.Children) > 0 {
 			a.analyzeNode(node.Children[0])
 		}
 		if len(node.Children) > 1 {
-			a.analyzeNode(node.Children[1])
+			for _, child := range node.Children[1].Children {
+				a.analyzeNode(child)
+			}
+		}
+		if len(node.Children) > 2 {
+			for _, child := range node.Children[2].Children {
+				a.analyzeNode(child)
+			}
 		}
 
 	case parser.FunctionNode:
@@ -3120,24 +4129,76 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "UNKNOWN",
-					Line:       node.Span.Start.Line, // Gunakan Span
+					Line:       node.Span.Start.Line,
 				}
+				a.moduleFunctions[name] = true // ← Pakai map
+				a.currentScope = name
 			}
 		}
+		for _, child := range node.Children {
+			if child.Type != parser.IdentifierNode {
+				a.analyzeNode(child)
+			}
+		}
+		a.currentScope = ""
 
 	case parser.ProcedureNode:
 		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
 			if name, ok := node.Children[0].Value.(string); ok {
 				a.procedures[name] = ProcedureInfo{
 					Parameters: []string{},
-					Line:       node.Span.Start.Line, // Gunakan Span
+					Line:       node.Span.Start.Line,
+				}
+				a.moduleProcedures[name] = true // ← Pakai map
+				a.currentScope = name
+			}
+		}
+		for _, child := range node.Children {
+			if child.Type != parser.IdentifierNode {
+				a.analyzeNode(child)
+			}
+		}
+		a.currentScope = ""
+
+	case parser.CallNode:
+		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+			if callee, ok := node.Children[0].Value.(string); ok {
+				caller := a.currentScope
+				if caller != "" {
+					a.callGraph[caller] = appendUnique(a.callGraph[caller], callee)
+					a.reverseCallGraph[callee] = appendUnique(a.reverseCallGraph[callee], caller)
 				}
 			}
+		}
+		for _, child := range node.Children {
+			a.analyzeNode(child)
 		}
 
 	case parser.IdentifierNode:
 		if name, ok := node.Value.(string); ok {
 			a.usedVariables[name] = true
+			context := "USAGE"
+			if a.currentScope != "" {
+				context = "USAGE in " + a.currentScope
+			}
+
+			// Cek apakah sudah ada entry dengan line/column yang sama
+			existing := false
+			for _, u := range a.usageMap[name] {
+				if u.Line == node.Span.Start.Line && u.Column == node.Span.Start.Column {
+					existing = true
+					break
+				}
+			}
+			if !existing {
+				a.usageMap[name] = append(a.usageMap[name], UsageInfo{
+					Name:     name,
+					Location: formatLocation(node.Span.Start.Line, node.Span.Start.Column),
+					Context:  context,
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+				})
+			}
 		}
 
 	case parser.FunctionCallNode:
@@ -3146,43 +4207,47 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "BUILTIN",
-					Line:       node.Span.Start.Line, // Gunakan Span
+					Line:       node.Span.Start.Line,
 				}
 			}
+			caller := a.currentScope
+			if caller != "" {
+				a.callGraph[caller] = appendUnique(a.callGraph[caller], name)
+				a.reverseCallGraph[name] = appendUnique(a.reverseCallGraph[name], caller)
+			}
 		}
-	case parser.CastNode:
-		// Cast doesn't define variables, just analyze children
 		for _, child := range node.Children {
 			a.analyzeNode(child)
 		}
 
-	case parser.CaseNode:
-		// Analyze semua children (WHEN clauses dan ELSE)
+	case parser.CastNode, parser.CaseNode, parser.WhenNode,
+		parser.IsNullNode, parser.IsNotNullNode, parser.BetweenNode,
+		parser.LikeNode, parser.InNode, parser.CoalesceNode, parser.NullIfNode:
 		for _, child := range node.Children {
 			a.analyzeNode(child)
 		}
-	case parser.WhenNode:
-		// Analyze condition dan result
-		for _, child := range node.Children {
-			a.analyzeNode(child)
-		}
-
-	case parser.IsNullNode, parser.IsNotNullNode:
-		// Analyze the expression being checked
-		for _, child := range node.Children {
-			a.analyzeNode(child)
-		}
-	case parser.BetweenNode:
-		// Analyze all three children: expr, lower, upper
-		for _, child := range node.Children {
-			a.analyzeNode(child)
-		}
-
 	}
 
 	for _, child := range node.Children {
 		a.analyzeNode(child)
 	}
+}
+
+// ============================================
+// Helper Functions
+// ============================================
+
+func appendUnique(slice []string, item string) []string {
+	for _, s := range slice {
+		if s == item {
+			return slice
+		}
+	}
+	return append(slice, item)
+}
+
+func formatLocation(line, column int) string {
+	return strconv.Itoa(line) + ":" + strconv.Itoa(column)
 }
 
 ```
@@ -3328,6 +4393,26 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 		displayName = fmt.Sprintf("BinaryOp (%s)", node.Token)
 	case parser.ParenthesizedNode:
 		displayName = "Parenthesized"
+
+	case parser.LikeNode:
+		if node.Not {
+			displayName = "Like (NOT)"
+		} else {
+			displayName = "Like"
+		}
+
+	case parser.InNode:
+		if node.Not {
+			displayName = "In (NOT)"
+		} else {
+			displayName = "In"
+		}
+	case parser.CoalesceNode:
+		displayName = "Coalesce"
+
+	case parser.NullIfNode:
+		displayName = "NullIf"
+
 	}
 
 	spanStr := node.Span.String()
@@ -3465,6 +4550,46 @@ func main() {
 				result += fmt.Sprintf("  %s (line %d)\n", name, info.Line)
 			}
 		}
+
+		// NEW: Call Graph
+		if len(analysisResult.CallGraph) > 0 {
+			result += "\n=== Call Graph (Caller -> Callees) ===\n"
+			for caller, callees := range analysisResult.CallGraph {
+				result += fmt.Sprintf("  %s -> %v\n", caller, callees)
+			}
+		}
+
+		// NEW: Reverse Call Graph
+		if len(analysisResult.ReverseCallGraph) > 0 {
+			result += "\n=== Reverse Call Graph (Callee -> Callers) ===\n"
+			for callee, callers := range analysisResult.ReverseCallGraph {
+				result += fmt.Sprintf("  %s <- %v\n", callee, callers)
+			}
+		}
+
+		// NEW: Impact Analysis
+		if len(analysisResult.ImpactMap) > 0 {
+			result += "\n=== Impact Analysis (Change X -> Affects Y) ===\n"
+			for name, affected := range analysisResult.ImpactMap {
+				result += fmt.Sprintf("  %s -> %v\n", name, affected)
+			}
+		}
+
+		// NEW: Module Info
+		if analysisResult.ModuleInfo.Name != "" {
+			result += "\n=== Module Info ===\n"
+			result += fmt.Sprintf("  Name: %s\n", analysisResult.ModuleInfo.Name)
+			result += fmt.Sprintf("  Line: %d\n", analysisResult.ModuleInfo.Line)
+			if len(analysisResult.ModuleInfo.Procedures) > 0 {
+				result += fmt.Sprintf("  Procedures: %v\n", analysisResult.ModuleInfo.Procedures)
+			}
+			if len(analysisResult.ModuleInfo.Functions) > 0 {
+				result += fmt.Sprintf("  Functions: %v\n", analysisResult.ModuleInfo.Functions)
+			}
+			if len(analysisResult.ModuleInfo.Variables) > 0 {
+				result += fmt.Sprintf("  Variables: %v\n", analysisResult.ModuleInfo.Variables)
+			}
+		}
 	}
 
 	if *validate {
@@ -3577,6 +4702,10 @@ const (
 	ISNULL      = "ISNULL"
 	NOTNULL     = "NOTNULL"
 	BETWEEN     = "BETWEEN"
+	LIKE        = "LIKE"
+	IN          = "IN"
+	COALESCE    = "COALESCE"
+	NULLIF      = "NULLIF"
 )
 
 type Token struct {
@@ -3630,6 +4759,10 @@ func LookupIdent(ident string) string {
 		"IS":          IS,
 		"NULL":        IDENTIFIER,
 		"BETWEEN":     BETWEEN,
+		"LIKE":        LIKE,
+		"IN":          IN,
+		"COALESCE":    COALESCE,
+		"NULLIF":      NULLIF,
 	}
 	if tok, ok := keywords[ident]; ok {
 		return tok

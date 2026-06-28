@@ -28,7 +28,7 @@ echo "## Isi Kode Berdasarkan File" >> "$OUTPUT_FILE"
 echo "" >> "$OUTPUT_FILE"
 
 # Mencari file kode yang valid
-find . -type f \( -name "*.go" -o -name "go.mod" -o -name "*.js" -o -name "*.ts" -o -name "*.py" -o -name "*.php" -o -name "*.json" -o -name "*.html" -o -name "*.css" -o -name "*.esql" \) \
+find . -type f \( -name "*.go" -o -name "go.mod" -o -name "*.js" -o -name "*.ts" -o -name "*.py" -o -name "*.php" -o -name "*.json" -o -name "*.html" -o -name "*.css" -o -name "*.esql" -o -name "*.sh" \) \
 -not -path "*/.*" \
 -not -path "./vendor/*" \
 -not -path "./node_modules/*" \

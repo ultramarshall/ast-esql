@@ -103,36 +103,74 @@ func main() {
 
 		if len(analysisResult.Functions) > 0 {
 			result += "\nFunctions:\n"
-			for name, info := range analysisResult.Functions {
+			// Sort function names for consistent output
+			var funcNames []string
+			for name := range analysisResult.Functions {
+				funcNames = append(funcNames, name)
+			}
+			sort.Strings(funcNames)
+			for _, name := range funcNames {
+				info := analysisResult.Functions[name]
 				result += fmt.Sprintf("  %s (line %d)\n", name, info.Line)
 			}
 		}
 
-		// NEW: Call Graph
+		if len(analysisResult.Procedures) > 0 {
+			result += "\nProcedures:\n"
+			var procNames []string
+			for name := range analysisResult.Procedures {
+				procNames = append(procNames, name)
+			}
+			sort.Strings(procNames)
+			for _, name := range procNames {
+				info := analysisResult.Procedures[name]
+				result += fmt.Sprintf("  %s (line %d)\n", name, info.Line)
+			}
+		}
+
+		// Call Graph - sorted
 		if len(analysisResult.CallGraph) > 0 {
 			result += "\n=== Call Graph (Caller -> Callees) ===\n"
-			for caller, callees := range analysisResult.CallGraph {
+			var callers []string
+			for caller := range analysisResult.CallGraph {
+				callers = append(callers, caller)
+			}
+			sort.Strings(callers)
+			for _, caller := range callers {
+				callees := analysisResult.CallGraph[caller]
 				result += fmt.Sprintf("  %s -> %v\n", caller, callees)
 			}
 		}
 
-		// NEW: Reverse Call Graph
+		// Reverse Call Graph - sorted
 		if len(analysisResult.ReverseCallGraph) > 0 {
 			result += "\n=== Reverse Call Graph (Callee -> Callers) ===\n"
-			for callee, callers := range analysisResult.ReverseCallGraph {
+			var callees []string
+			for callee := range analysisResult.ReverseCallGraph {
+				callees = append(callees, callee)
+			}
+			sort.Strings(callees)
+			for _, callee := range callees {
+				callers := analysisResult.ReverseCallGraph[callee]
 				result += fmt.Sprintf("  %s <- %v\n", callee, callers)
 			}
 		}
 
-		// NEW: Impact Analysis
+		// Impact Analysis - sorted by key
 		if len(analysisResult.ImpactMap) > 0 {
 			result += "\n=== Impact Analysis (Change X -> Affects Y) ===\n"
-			for name, affected := range analysisResult.ImpactMap {
+			var keys []string
+			for name := range analysisResult.ImpactMap {
+				keys = append(keys, name)
+			}
+			sort.Strings(keys)
+			for _, name := range keys {
+				affected := analysisResult.ImpactMap[name]
 				result += fmt.Sprintf("  %s -> %v\n", name, affected)
 			}
 		}
 
-		// NEW: Module Info
+		// Module Info
 		if analysisResult.ModuleInfo.Name != "" {
 			result += "\n=== Module Info ===\n"
 			result += fmt.Sprintf("  Name: %s\n", analysisResult.ModuleInfo.Name)
