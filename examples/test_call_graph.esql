@@ -1,0 +1,30 @@
+CREATE COMPUTE MODULE TestCallGraph
+    DECLARE score INTEGER;
+    DECLARE result INTEGER;
+    
+    CREATE PROCEDURE ProcA()
+    BEGIN
+        CALL ProcB();
+        SET score = 10;
+    END;
+    
+    CREATE PROCEDURE ProcB()
+    BEGIN
+        CALL ProcC();
+        SET score = 20;
+    END;
+    
+    CREATE PROCEDURE ProcC()
+    BEGIN
+        SET score = 30;
+    END;
+    
+    CREATE FUNCTION FuncA() RETURNS INTEGER
+    BEGIN
+        RETURN score + 10;
+    END;
+    
+    -- Main
+    CALL ProcA();
+    SET result = FuncA();
+END MODULE;

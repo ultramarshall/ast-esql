@@ -107,6 +107,46 @@ func main() {
 				result += fmt.Sprintf("  %s (line %d)\n", name, info.Line)
 			}
 		}
+
+		// NEW: Call Graph
+		if len(analysisResult.CallGraph) > 0 {
+			result += "\n=== Call Graph (Caller -> Callees) ===\n"
+			for caller, callees := range analysisResult.CallGraph {
+				result += fmt.Sprintf("  %s -> %v\n", caller, callees)
+			}
+		}
+
+		// NEW: Reverse Call Graph
+		if len(analysisResult.ReverseCallGraph) > 0 {
+			result += "\n=== Reverse Call Graph (Callee -> Callers) ===\n"
+			for callee, callers := range analysisResult.ReverseCallGraph {
+				result += fmt.Sprintf("  %s <- %v\n", callee, callers)
+			}
+		}
+
+		// NEW: Impact Analysis
+		if len(analysisResult.ImpactMap) > 0 {
+			result += "\n=== Impact Analysis (Change X -> Affects Y) ===\n"
+			for name, affected := range analysisResult.ImpactMap {
+				result += fmt.Sprintf("  %s -> %v\n", name, affected)
+			}
+		}
+
+		// NEW: Module Info
+		if analysisResult.ModuleInfo.Name != "" {
+			result += "\n=== Module Info ===\n"
+			result += fmt.Sprintf("  Name: %s\n", analysisResult.ModuleInfo.Name)
+			result += fmt.Sprintf("  Line: %d\n", analysisResult.ModuleInfo.Line)
+			if len(analysisResult.ModuleInfo.Procedures) > 0 {
+				result += fmt.Sprintf("  Procedures: %v\n", analysisResult.ModuleInfo.Procedures)
+			}
+			if len(analysisResult.ModuleInfo.Functions) > 0 {
+				result += fmt.Sprintf("  Functions: %v\n", analysisResult.ModuleInfo.Functions)
+			}
+			if len(analysisResult.ModuleInfo.Variables) > 0 {
+				result += fmt.Sprintf("  Variables: %v\n", analysisResult.ModuleInfo.Variables)
+			}
+		}
 	}
 
 	if *validate {
