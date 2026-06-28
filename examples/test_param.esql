@@ -1,0 +1,42 @@
+CREATE COMPUTE MODULE TestParameterModes
+
+    -- Procedure dengan berbagai mode parameter
+    CREATE PROCEDURE ProcessData(
+        IN p_input INTEGER,
+        OUT p_output CHARACTER,
+        INOUT p_accumulator FLOAT
+    )
+    BEGIN
+        SET p_output = 'Processed';
+        SET p_accumulator = p_accumulator + p_input;
+    END;
+
+    -- Procedure dengan default IN (tanpa mode)
+    CREATE PROCEDURE SimpleProc(
+        p_name CHARACTER,
+        p_value INTEGER
+    )
+    BEGIN
+        SET p_value = p_value * 2;
+    END;
+
+    -- Function (semua parameter default IN)
+    CREATE FUNCTION Calculate(
+        p_a INTEGER,
+        p_b INTEGER
+    ) RETURNS INTEGER
+    BEGIN
+        RETURN p_a + p_b;
+    END;
+
+    DECLARE inputVal INTEGER;
+    DECLARE outputVal CHARACTER;
+    DECLARE acc FLOAT;
+
+    SET inputVal = 10;
+    SET acc = 0.0;
+
+    CALL ProcessData(inputVal, outputVal, acc);
+    SET inputVal = Calculate(5, 7);
+
+END MODULE;

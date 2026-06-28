@@ -23,9 +23,7 @@ func (p *Parser) parseWhile() ASTNode {
 		if stmt.Type != "" {
 			bodyNode.AddChild(stmt)
 		}
-		if p.curToken.Type != token.END && p.curToken.Type != token.EOF {
-			p.nextToken()
-		}
+		// parseStatement sudah memajukan token, tidak perlu p.nextToken() lagi
 	}
 	node.AddChild(bodyNode)
 

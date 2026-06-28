@@ -54,18 +54,25 @@ func (p *Parser) parseThrow() ASTNode {
 
 func (p *Parser) parsePropagate() ASTNode {
 	node := NewASTNode(PropagateNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume PROPAGATE
 
+	// Parse expressions sampai semicolon
+	// Bisa multiple expressions dipisah koma
 	for p.curToken.Type != token.SEMICOLON && p.curToken.Type != token.EOF {
 		expr := p.parseExpression()
 		if expr.Type != "" {
 			node.AddChild(expr)
+		}
+		// Jika ketemu koma, lanjut ke expression berikutnya
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
 		}
 	}
 
 	if p.curToken.Type == token.SEMICOLON {
 		p.nextToken()
 	}
+
 	return node
 }
 

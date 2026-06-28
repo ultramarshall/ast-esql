@@ -9,8 +9,6 @@ Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder d
 ├── cmd
 │   └── esql-ast
 │       └── main.go
-├── debug_output2.txt
-├── debug_output.txt
 ├── DOC.md
 ├── esql-ast
 ├── examples
@@ -28,7 +26,9 @@ Dokumen ini dihasilkan secara otomatis untuk memetakan seluruh struktur folder d
 │   ├── test_in.esql
 │   ├── test_is_null.esql
 │   ├── test_like.esql
-│   └── test_nested_cast.esql
+│   ├── test_nested_cast.esql
+│   ├── test_param.esql
+│   └── test_propagate.esql
 ├── generate_doc.sh
 ├── go.mod
 ├── internal
@@ -260,6 +260,55 @@ CREATE COMPUTE MODULE TestLike
     IF name LIKE 'J__n%' THEN
         SET result = 3;
     END IF;
+END MODULE;
+```
+
+---
+
+### File: `examples/test_param.esql`
+
+```text
+CREATE COMPUTE MODULE TestParameterModes
+
+    -- Procedure dengan berbagai mode parameter
+    CREATE PROCEDURE ProcessData(
+        IN p_input INTEGER,
+        OUT p_output CHARACTER,
+        INOUT p_accumulator FLOAT
+    )
+    BEGIN
+        SET p_output = 'Processed';
+        SET p_accumulator = p_accumulator + p_input;
+    END;
+
+    -- Procedure dengan default IN (tanpa mode)
+    CREATE PROCEDURE SimpleProc(
+        p_name CHARACTER,
+        p_value INTEGER
+    )
+    BEGIN
+        SET p_value = p_value * 2;
+    END;
+
+    -- Function (semua parameter default IN)
+    CREATE FUNCTION Calculate(
+        p_a INTEGER,
+        p_b INTEGER
+    ) RETURNS INTEGER
+    BEGIN
+        RETURN p_a + p_b;
+    END;
+
+    DECLARE inputVal INTEGER;
+    DECLARE outputVal CHARACTER;
+    DECLARE acc FLOAT;
+
+    SET inputVal = 10;
+    SET acc = 0.0;
+
+    CALL ProcessData(inputVal, outputVal, acc);
+    SET inputVal = Calculate(5, 7);
+
 END MODULE;
 ```
 
@@ -579,6 +628,32 @@ END MODULE;
 
 ---
 
+### File: `examples/test_propagate.esql`
+
+```text
+CREATE COMPUTE MODULE TestPropagate
+    DECLARE status STRING;
+    DECLARE result INTEGER;
+    
+    -- Basic PROPAGATE
+    PROPAGATE status;
+    
+    -- PROPAGATE with expression
+    PROPAGATE result + 10;
+    
+    -- PROPAGATE in IF
+    IF status IS NOT NULL THEN
+        PROPAGATE status;
+    END IF;
+    
+    -- PROPAGATE with multiple expressions
+    PROPAGATE status, result;
+END MODULE;
+
+```
+
+---
+
 ### File: `examples/test_case_nested_if.esql`
 
 ```text
@@ -732,7 +807,6 @@ func (p *Parser) parseSet() ASTNode {
 	}
 
 	if target.Type != "" {
-		// Gunakan Span untuk posisi
 		targetWrapper := NewASTNode(BlockNode, "target", target.Span.Start.Line, target.Span.Start.Column)
 		targetWrapper.AddChild(target)
 		targetWrapper.Span = target.Span
@@ -742,15 +816,35 @@ func (p *Parser) parseSet() ASTNode {
 	// Parse '='
 	if p.curToken.Type == token.ASSIGN || p.curToken.Type == token.EQ {
 		p.nextToken()
-		value := p.parseExpression()
+
+		// ✅ Cek apakah ada expression setelah '='
+		if p.curToken.Type == token.SEMICOLON || p.curToken.Type == token.EOF {
+			p.errors = append(p.errors,
+				fmt.Sprintf("expected expression after '=' in SET statement at line %d",
+					p.curToken.Line))
+			// Consume semicolon or EOF to avoid infinite loop
+			if p.curToken.Type == token.SEMICOLON {
+				p.nextToken()
+			}
+			return node
+		}
+
+		// ✅ Cek juga jika token adalah ';' setelah whitespace
+		// (ini sudah di-handle di atas)
+
+		value := p.parseAssignmentRHS()
 		if value.Type != "" {
-			// Gunakan Span untuk posisi
 			valueWrapper := NewASTNode(BlockNode, "value", value.Span.Start.Line, value.Span.Start.Column)
 			valueWrapper.AddChild(value)
 			valueWrapper.Span = value.Span
 			node.AddChild(valueWrapper)
-			// Update node span to include value
 			node.Span.End = value.Span.End
+		} else {
+			// ✅ Kalau parseAssignmentRHS return kosong, tambahkan error
+			p.errors = append(p.errors,
+				fmt.Sprintf("invalid expression after '=' in SET statement at line %d",
+					p.curToken.Line))
+			return node
 		}
 	} else {
 		p.errors = append(p.errors,
@@ -768,6 +862,41 @@ func (p *Parser) parseSet() ASTNode {
 		p.curToken.Type, p.curToken.Literal)
 
 	return node
+}
+
+func (p *Parser) parseAssignmentRHS() ASTNode {
+	// Parse sebagai additive dulu
+	left := p.parseAdditive()
+
+	debugPrint("  [parseAssignmentRHS] after parseAdditive: token=%s, literal='%s'\n",
+		p.curToken.Type, p.curToken.Literal)
+
+	// Jika setelah parseAdditive masih ada operator comparison selain '='
+	// Misalnya: >, <, >=, <=, !=
+	if p.curToken.Type == token.GT || p.curToken.Type == token.LT ||
+		p.curToken.Type == token.GTE || p.curToken.Type == token.LTE ||
+		p.curToken.Type == token.NOT_EQ {
+		// Ini adalah comparison, parse sebagai comparison
+		debugPrint("  [parseAssignmentRHS] found comparison operator, parsing as comparison\n")
+		return p.parseComparisonSuffix(left)
+	}
+
+	// ✅ Jika token saat ini adalah ';', berarti selesai
+	if p.curToken.Type == token.SEMICOLON {
+		debugPrint("  [parseAssignmentRHS] found ';', returning left\n")
+		return left
+	}
+
+	// ✅ Jika token saat ini adalah '=', abaikan (sudah di-consume di parseSet)
+	if p.curToken.Type == token.EQ || p.curToken.Type == token.ASSIGN {
+		debugPrint("  [parseAssignmentRHS] found '=', but in SET context, skipping...\n")
+		// Consume token '=' agar tidak menyebabkan infinite loop
+		p.nextToken()
+		return left
+	}
+
+	debugPrint("  [parseAssignmentRHS] returning left (no more operators)\n")
+	return left
 }
 
 ```
@@ -834,6 +963,11 @@ const (
 	InNode             NodeType = "In"
 	CoalesceNode       NodeType = "Coalesce"
 	NullIfNode         NodeType = "NullIf"
+	ParameterNode      NodeType = "Parameter"
+	ModeNode           NodeType = "Mode"
+	ParameterNameNode  NodeType = "ParamName"
+	ParameterTypeNode  NodeType = "ParamType"
+	ReturnTypeNode     NodeType = "ReturnType"
 )
 
 // Position represents a position in source code
@@ -855,7 +989,8 @@ type ASTNode struct {
 	Children []ASTNode   `json:"children,omitempty"`
 	Span     Span        `json:"span"`
 	Token    string      `json:"-"`
-	Not      bool        `json:"not,omitempty"` // Untuk NOT BETWEEN
+	Not      bool        `json:"not,omitempty"`
+	Target   string      `json:"target,omitempty"`
 }
 
 // NewASTNode creates a new AST node with start position
@@ -892,27 +1027,28 @@ func (n *ASTNode) SetEnd(line, column int) {
 }
 
 // ToJSON returns JSON representation of the node
-func (n ASTNode) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(n, "", "  ")
+func (p Program) ToJSON() ([]byte, error) {
+	if p.Root.Type != "" {
+		return json.MarshalIndent(p.Root, "", "  ")
+	}
+	return json.MarshalIndent(p.Statements, "", "  ")
 }
 
 // Program represents a complete program
 type Program struct {
 	Statements []ASTNode `json:"statements"`
+	Root       ASTNode   `json:"root,omitempty"`
 }
 
 func NewProgram() Program {
 	return Program{
 		Statements: []ASTNode{},
+		Root:       ASTNode{},
 	}
 }
 
 func (p *Program) AddStatement(stmt ASTNode) {
 	p.Statements = append(p.Statements, stmt)
-}
-
-func (p Program) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(p, "", "  ")
 }
 
 // String returns a string representation of Position
@@ -936,6 +1072,7 @@ package parser
 
 import (
 	"esql-ast-tool/internal/token"
+	"fmt"
 )
 
 // ============================================
@@ -943,23 +1080,19 @@ import (
 // ============================================
 
 func (p *Parser) parseCreate() ASTNode {
-	node := NewASTNode(CreateNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume CREATE
 
 	if p.curToken.Type == token.COMPUTE {
 		p.nextToken()
 		if p.curToken.Type == token.MODULE {
 			p.nextToken()
-			moduleNode := p.parseComputeModule()
-			node.AddChild(moduleNode)
+			// Langsung return module node, tanpa dibungkus CreateNode
+			return p.parseComputeModule()
 		}
 	}
 
-	if p.curToken.Type == token.SEMICOLON {
-		p.nextToken()
-	}
-
-	return node
+	// Fallback
+	return ASTNode{}
 }
 
 func (p *Parser) parseComputeModule() ASTNode {
@@ -974,7 +1107,7 @@ func (p *Parser) parseComputeModule() ASTNode {
 		p.nextToken()
 	}
 
-	// Parse body
+	// Parse body - LANGSUNG parse statement, JANGAN lewat parseCreate lagi
 	for p.curToken.Type != token.END && p.curToken.Type != token.EOF {
 		stmt := p.parseStatement()
 		if stmt.Type != "" {
@@ -1052,26 +1185,36 @@ func (p *Parser) parseFunctionStatement() ASTNode {
 	// Parse function name
 	if p.curToken.Type == token.IDENTIFIER {
 		nameNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-		if nameNode.Value == nil {
-			nameNode.Value = nameNode.Token
-		}
+		nameNode.Value = p.curToken.Literal
 		node.AddChild(nameNode)
 		p.nextToken()
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected function name, got %s", p.curToken.Type))
+		return node
 	}
 
-	// Parse parameters
+	// Parse parameters (harus ada LPAREN)
 	if p.curToken.Type == token.LPAREN {
 		p.parseFunctionParameters(&node)
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected '(' after function name, got %s", p.curToken.Type))
+		return node
 	}
 
 	// Parse return type
 	if p.curToken.Type == token.RETURNS {
 		p.parseFunctionReturnType(&node)
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected RETURNS, got %s", p.curToken.Type))
+		return node
 	}
 
 	// Parse function body
 	if p.curToken.Type == token.BEGIN {
 		p.parseFunctionBody(&node)
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected BEGIN, got %s", p.curToken.Type))
+		return node
 	}
 
 	if p.curToken.Type == token.SEMICOLON {
@@ -1079,42 +1222,6 @@ func (p *Parser) parseFunctionStatement() ASTNode {
 	}
 
 	return node
-}
-
-func (p *Parser) parseFunctionParameters(node *ASTNode) {
-	p.nextToken()
-	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
-		if p.curToken.Type == token.IDENTIFIER {
-			paramNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-			if paramNode.Value == nil {
-				paramNode.Value = paramNode.Token
-			}
-			node.AddChild(paramNode)
-			p.nextToken()
-			// Skip type
-			if p.curToken.Type == token.IDENTIFIER {
-				p.nextToken()
-			}
-		}
-		if p.curToken.Type == token.COMMA {
-			p.nextToken()
-		}
-	}
-	if p.curToken.Type == token.RPAREN {
-		p.nextToken()
-	}
-}
-
-func (p *Parser) parseFunctionReturnType(node *ASTNode) {
-	p.nextToken()
-	if p.curToken.Type == token.IDENTIFIER {
-		returnType := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-		if returnType.Value == nil {
-			returnType.Value = returnType.Token
-		}
-		node.AddChild(returnType)
-		p.nextToken()
-	}
 }
 
 func (p *Parser) parseFunctionBody(node *ASTNode) {
@@ -1133,6 +1240,120 @@ func (p *Parser) parseFunctionBody(node *ASTNode) {
 	}
 }
 
+func (p *Parser) parseFunctionParameters(node *ASTNode) {
+	p.nextToken() // consume '('
+
+	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
+		// Simpan posisi awal parameter
+		paramStartLine := p.curToken.Line
+		paramStartCol := p.curToken.Column
+
+		// 1. Parse mode
+		var mode string
+		var modeStartLine, modeStartCol int
+		if p.curToken.Type == token.IN || p.curToken.Type == token.OUT || p.curToken.Type == token.INOUT {
+			mode = p.curToken.Literal
+			modeStartLine = p.curToken.Line
+			modeStartCol = p.curToken.Column
+			p.nextToken()
+		} else {
+			mode = "IN"
+			// Jika tidak ada mode, posisi awal adalah nama parameter
+			modeStartLine = p.curToken.Line
+			modeStartCol = p.curToken.Column
+		}
+
+		// 2. Parse parameter name
+		if p.curToken.Type != token.IDENTIFIER {
+			p.errors = append(p.errors, fmt.Sprintf("expected parameter name, got %s", p.curToken.Type))
+			break
+		}
+		nameStartLine := p.curToken.Line
+		nameStartCol := p.curToken.Column
+		paramName := p.curToken.Literal
+		p.nextToken()
+
+		// 3. Parse parameter type
+		if p.curToken.Type != token.IDENTIFIER {
+			p.errors = append(p.errors, fmt.Sprintf("expected parameter type, got %s", p.curToken.Type))
+			break
+		}
+		typeStartLine := p.curToken.Line
+		typeStartCol := p.curToken.Column
+		paramType := p.curToken.Literal
+		p.nextToken()
+
+		// 4. Create Parameter node
+		paramNode := NewASTNode(ParameterNode, "parameter", paramStartLine, paramStartCol)
+
+		// Mode node
+		modeNode := NewASTNode(LiteralNode, mode, modeStartLine, modeStartCol)
+		modeNode.Value = mode
+		modeNode.Span = Span{
+			Start: Position{Line: modeStartLine, Column: modeStartCol},
+			End:   Position{Line: modeStartLine, Column: modeStartCol + len(mode)},
+		}
+		paramNode.AddChild(modeNode)
+
+		// Name node
+		nameNode := NewASTNode(IdentifierNode, paramName, nameStartLine, nameStartCol)
+		nameNode.Value = paramName
+		nameNode.Span = Span{
+			Start: Position{Line: nameStartLine, Column: nameStartCol},
+			End:   Position{Line: nameStartLine, Column: nameStartCol + len(paramName)},
+		}
+		paramNode.AddChild(nameNode)
+
+		// Type node
+		typeNode := NewASTNode(IdentifierNode, paramType, typeStartLine, typeStartCol)
+		typeNode.Value = paramType
+		typeNode.Span = Span{
+			Start: Position{Line: typeStartLine, Column: typeStartCol},
+			End:   Position{Line: typeStartLine, Column: typeStartCol + len(paramType)},
+		}
+		paramNode.AddChild(typeNode)
+
+		// Span parameter: dari awal parameter sampai akhir type
+		paramNode.Span = Span{
+			Start: Position{Line: paramStartLine, Column: paramStartCol},
+			End:   Position{Line: typeStartLine, Column: typeStartCol + len(paramType)},
+		}
+		node.AddChild(paramNode)
+
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
+		}
+	}
+	if p.curToken.Type == token.RPAREN {
+		p.nextToken()
+	}
+}
+
+func (p *Parser) parseFunctionReturnType(node *ASTNode) {
+	p.nextToken() // consume RETURNS
+	if p.curToken.Type == token.IDENTIFIER {
+		returnType := NewASTNode(ReturnTypeNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
+		returnType.Value = p.curToken.Literal
+		node.AddChild(returnType)
+		p.nextToken()
+	}
+}
+
+func (p *Parser) parseProcedureBody(node *ASTNode) {
+	p.nextToken() // consume BEGIN
+	for p.curToken.Type != token.END && p.curToken.Type != token.EOF {
+		stmt := p.parseStatement()
+		if stmt.Type != "" {
+			node.AddChild(stmt)
+		}
+		// parseStatement sudah memajukan token ke setelah statement,
+		// tidak perlu p.nextToken() lagi di sini.
+	}
+	if p.curToken.Type == token.END {
+		p.nextToken()
+	}
+}
+
 // ============================================
 // PROCEDURE Statement
 // ============================================
@@ -1144,21 +1365,28 @@ func (p *Parser) parseProcedureStatement() ASTNode {
 	// Parse procedure name
 	if p.curToken.Type == token.IDENTIFIER {
 		nameNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-		if nameNode.Value == nil {
-			nameNode.Value = nameNode.Token
-		}
+		nameNode.Value = p.curToken.Literal
 		node.AddChild(nameNode)
 		p.nextToken()
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected procedure name, got %s", p.curToken.Type))
+		return node
 	}
 
 	// Parse parameters
 	if p.curToken.Type == token.LPAREN {
 		p.parseProcedureParameters(&node)
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected '(' after procedure name, got %s", p.curToken.Type))
+		return node
 	}
 
 	// Parse procedure body
 	if p.curToken.Type == token.BEGIN {
 		p.parseProcedureBody(&node)
+	} else {
+		p.errors = append(p.errors, fmt.Sprintf("expected BEGIN, got %s", p.curToken.Type))
+		return node
 	}
 
 	if p.curToken.Type == token.SEMICOLON {
@@ -1169,40 +1397,80 @@ func (p *Parser) parseProcedureStatement() ASTNode {
 }
 
 func (p *Parser) parseProcedureParameters(node *ASTNode) {
-	p.nextToken()
+	p.nextToken() // consume '('
+
 	for p.curToken.Type != token.RPAREN && p.curToken.Type != token.EOF {
-		if p.curToken.Type == token.IDENTIFIER {
-			paramNode := NewASTNode(IdentifierNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-			if paramNode.Value == nil {
-				paramNode.Value = paramNode.Token
-			}
-			node.AddChild(paramNode)
+		paramStartLine := p.curToken.Line
+		paramStartCol := p.curToken.Column
+
+		var mode string
+		var modeStartLine, modeStartCol int
+		if p.curToken.Type == token.IN || p.curToken.Type == token.OUT || p.curToken.Type == token.INOUT {
+			mode = p.curToken.Literal
+			modeStartLine = p.curToken.Line
+			modeStartCol = p.curToken.Column
 			p.nextToken()
-			if p.curToken.Type == token.IDENTIFIER {
-				p.nextToken()
-			}
+		} else {
+			mode = "IN"
+			modeStartLine = p.curToken.Line
+			modeStartCol = p.curToken.Column
 		}
+
+		if p.curToken.Type != token.IDENTIFIER {
+			p.errors = append(p.errors, fmt.Sprintf("expected parameter name, got %s", p.curToken.Type))
+			break
+		}
+		nameStartLine := p.curToken.Line
+		nameStartCol := p.curToken.Column
+		paramName := p.curToken.Literal
+		p.nextToken()
+
+		if p.curToken.Type != token.IDENTIFIER {
+			p.errors = append(p.errors, fmt.Sprintf("expected parameter type, got %s", p.curToken.Type))
+			break
+		}
+		typeStartLine := p.curToken.Line
+		typeStartCol := p.curToken.Column
+		paramType := p.curToken.Literal
+		p.nextToken()
+
+		paramNode := NewASTNode(ParameterNode, "parameter", paramStartLine, paramStartCol)
+
+		modeNode := NewASTNode(LiteralNode, mode, modeStartLine, modeStartCol)
+		modeNode.Value = mode
+		modeNode.Span = Span{
+			Start: Position{Line: modeStartLine, Column: modeStartCol},
+			End:   Position{Line: modeStartLine, Column: modeStartCol + len(mode)},
+		}
+		paramNode.AddChild(modeNode)
+
+		nameNode := NewASTNode(IdentifierNode, paramName, nameStartLine, nameStartCol)
+		nameNode.Value = paramName
+		nameNode.Span = Span{
+			Start: Position{Line: nameStartLine, Column: nameStartCol},
+			End:   Position{Line: nameStartLine, Column: nameStartCol + len(paramName)},
+		}
+		paramNode.AddChild(nameNode)
+
+		typeNode := NewASTNode(IdentifierNode, paramType, typeStartLine, typeStartCol)
+		typeNode.Value = paramType
+		typeNode.Span = Span{
+			Start: Position{Line: typeStartLine, Column: typeStartCol},
+			End:   Position{Line: typeStartLine, Column: typeStartCol + len(paramType)},
+		}
+		paramNode.AddChild(typeNode)
+
+		paramNode.Span = Span{
+			Start: Position{Line: paramStartLine, Column: paramStartCol},
+			End:   Position{Line: typeStartLine, Column: typeStartCol + len(paramType)},
+		}
+		node.AddChild(paramNode)
+
 		if p.curToken.Type == token.COMMA {
 			p.nextToken()
 		}
 	}
 	if p.curToken.Type == token.RPAREN {
-		p.nextToken()
-	}
-}
-
-func (p *Parser) parseProcedureBody(node *ASTNode) {
-	p.nextToken()
-	for p.curToken.Type != token.END && p.curToken.Type != token.EOF {
-		stmt := p.parseStatement()
-		if stmt.Type != "" {
-			node.AddChild(stmt)
-		}
-		if p.curToken.Type != token.END && p.curToken.Type != token.EOF {
-			p.nextToken()
-		}
-	}
-	if p.curToken.Type == token.END {
 		p.nextToken()
 	}
 }
@@ -1312,7 +1580,13 @@ func (p *Parser) parseFunctionCall(name ASTNode) ASTNode {
 	node := NewASTNode(FunctionCallNode, funcName, name.Span.Start.Line, name.Span.Start.Column)
 	node.Value = funcName
 	node.Span.Start = name.Span.Start
-	p.nextToken()
+
+	// ✅ Tambahkan name sebagai child pertama
+	nameNode := NewASTNode(IdentifierNode, funcName, name.Span.Start.Line, name.Span.Start.Column)
+	nameNode.Value = funcName
+	node.AddChild(nameNode)
+
+	p.nextToken() // consume '('
 
 	if p.curToken.Type != token.RPAREN {
 		arg := p.parseExpression()
@@ -1790,6 +2064,11 @@ func (p *Parser) parseExpression() ASTNode {
 
 	left := p.parseLogicalOr()
 
+	if p.inSet {
+		debugPrint("  [parseExpression] inSet=true, skipping '=' comparison\n")
+		return left
+	}
+
 	if p.curToken.Type == token.EQ || p.curToken.Type == token.ASSIGN ||
 		p.curToken.Type == token.NOT_EQ ||
 		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
@@ -2216,6 +2495,7 @@ type Parser struct {
 	curToken  token.Token
 	peekToken token.Token
 	errors    []string
+	inSet     bool
 }
 
 func NewParser(input string) *Parser {
@@ -2295,11 +2575,13 @@ func (p *Parser) DebugPrintTokens() {
 // ParseProgram - entry point
 func (p *Parser) ParseProgram() Program {
 	program := NewProgram()
+	rootNode := NewASTNode(ProgramNode, "PROGRAM", 1, 1)
 
 	for p.curToken.Type != token.EOF {
 		stmt := p.parseStatement()
 		if stmt.Type != "" {
-			program.AddStatement(stmt)
+			rootNode.AddChild(stmt)
+			program.AddStatement(stmt) // <-- tambahkan ini
 		}
 
 		if p.curToken.Type == token.SEMICOLON {
@@ -2309,6 +2591,7 @@ func (p *Parser) ParseProgram() Program {
 		}
 	}
 
+	program.Root = rootNode
 	return program
 }
 
@@ -2344,9 +2627,7 @@ func (p *Parser) parseWhile() ASTNode {
 		if stmt.Type != "" {
 			bodyNode.AddChild(stmt)
 		}
-		if p.curToken.Type != token.END && p.curToken.Type != token.EOF {
-			p.nextToken()
-		}
+		// parseStatement sudah memajukan token, tidak perlu p.nextToken() lagi
 	}
 	node.AddChild(bodyNode)
 
@@ -2754,18 +3035,25 @@ func (p *Parser) parseThrow() ASTNode {
 
 func (p *Parser) parsePropagate() ASTNode {
 	node := NewASTNode(PropagateNode, p.curToken.Literal, p.curToken.Line, p.curToken.Column)
-	p.nextToken()
+	p.nextToken() // consume PROPAGATE
 
+	// Parse expressions sampai semicolon
+	// Bisa multiple expressions dipisah koma
 	for p.curToken.Type != token.SEMICOLON && p.curToken.Type != token.EOF {
 		expr := p.parseExpression()
 		if expr.Type != "" {
 			node.AddChild(expr)
+		}
+		// Jika ketemu koma, lanjut ke expression berikutnya
+		if p.curToken.Type == token.COMMA {
+			p.nextToken()
 		}
 	}
 
 	if p.curToken.Type == token.SEMICOLON {
 		p.nextToken()
 	}
+
 	return node
 }
 
@@ -3363,9 +3651,51 @@ func Suggest(program parser.Program, analysisResult analyzer.AnalysisResult) Ref
 func RenameVariable(program parser.Program, oldName, newName string, dryRun bool) RenameResult {
 	var locations []RenameLocation
 	occurrences := 0
+	declareLines := make(map[int]bool)
 
-	// Traverse AST and find all occurrences of the variable
-	searchAndReplace(program.Statements, oldName, newName, &locations, &occurrences, "variable")
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// DECLARE
+		if node.Type == parser.DeclareNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				name := getNodeName(node.Children[0])
+				if name == oldName {
+					declareLines[node.Span.Start.Line] = true
+					occurrences++
+					locations = append(locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "DECLARE",
+					})
+				}
+			}
+		}
+
+		// Identifier usage
+		if node.Type == parser.IdentifierNode {
+			name := getNodeName(node)
+			if name == oldName && !declareLines[node.Span.Start.Line] {
+				occurrences++
+				locations = append(locations, RenameLocation{
+					Line:    node.Span.Start.Line,
+					Column:  node.Span.Start.Column,
+					OldText: oldName,
+					NewText: newName,
+					Context: "USAGE",
+				})
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
 
 	if occurrences == 0 {
 		return RenameResult{
@@ -3392,7 +3722,50 @@ func RenameProcedure(program parser.Program, oldName, newName string, dryRun boo
 	var locations []RenameLocation
 	occurrences := 0
 
-	searchAndReplace(program.Statements, oldName, newName, &locations, &occurrences, "procedure")
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// PROCEDURE definition
+		if node.Type == parser.ProcedureNode {
+			if len(node.Children) > 0 {
+				name := getNodeName(node.Children[0])
+				if name == oldName {
+					occurrences++
+					locations = append(locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "PROCEDURE",
+					})
+				}
+			}
+		}
+
+		// CALL statement
+		if node.Type == parser.CallNode {
+			if len(node.Children) > 0 {
+				name := getNodeName(node.Children[0])
+				if name == oldName {
+					occurrences++
+					locations = append(locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "CALL",
+					})
+				}
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
 
 	if occurrences == 0 {
 		return RenameResult{
@@ -3419,7 +3792,48 @@ func RenameFunction(program parser.Program, oldName, newName string, dryRun bool
 	var locations []RenameLocation
 	occurrences := 0
 
-	searchAndReplace(program.Statements, oldName, newName, &locations, &occurrences, "function")
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// FUNCTION definition
+		if node.Type == parser.FunctionNode {
+			if len(node.Children) > 0 {
+				name := getNodeName(node.Children[0])
+				if name == oldName {
+					occurrences++
+					locations = append(locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "FUNCTION",
+					})
+				}
+			}
+		}
+
+		// FUNCTION CALL
+		if node.Type == parser.FunctionCallNode {
+			name := getNodeName(node)
+			if name == oldName {
+				occurrences++
+				locations = append(locations, RenameLocation{
+					Line:    node.Span.Start.Line,
+					Column:  node.Span.Start.Column,
+					OldText: oldName,
+					NewText: newName,
+					Context: "FUNCTION_CALL",
+				})
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
 
 	if occurrences == 0 {
 		return RenameResult{
@@ -3448,101 +3862,131 @@ func RenameFunction(program parser.Program, oldName, newName string, dryRun bool
 
 func searchAndReplace(nodes []parser.ASTNode, oldName, newName string, locations *[]RenameLocation, occurrences *int, targetType string) {
 	for _, node := range nodes {
-		switch node.Type {
-		case parser.IdentifierNode:
-			if val, ok := node.Value.(string); ok && val == oldName {
-				*occurrences++
-				context := getContext(node)
-				*locations = append(*locations, RenameLocation{
-					Line:    node.Span.Start.Line,
-					Column:  node.Span.Start.Column,
-					OldText: oldName,
-					NewText: newName,
-					Context: context,
-				})
-			}
-
-		case parser.DeclareNode:
-			// Check if this declares the variable
-			if targetType == "variable" && len(node.Children) > 0 {
-				if node.Children[0].Type == parser.IdentifierNode {
-					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
-						*occurrences++
-						*locations = append(*locations, RenameLocation{
-							Line:    node.Span.Start.Line,
-							Column:  node.Span.Start.Column,
-							OldText: oldName,
-							NewText: newName,
-							Context: "DECLARE",
-						})
-					}
+		// Procedure definition
+		if node.Type == parser.ProcedureNode && targetType == "procedure" {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				var name string
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					name = val
+				} else if node.Children[0].Token != "" {
+					name = node.Children[0].Token
 				}
-			}
-
-		case parser.FunctionNode:
-			if targetType == "function" && len(node.Children) > 0 {
-				if node.Children[0].Type == parser.IdentifierNode {
-					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
-						*occurrences++
-						*locations = append(*locations, RenameLocation{
-							Line:    node.Span.Start.Line,
-							Column:  node.Span.Start.Column,
-							OldText: oldName,
-							NewText: newName,
-							Context: "FUNCTION",
-						})
-					}
-				}
-			}
-
-		case parser.ProcedureNode:
-			if targetType == "procedure" && len(node.Children) > 0 {
-				if node.Children[0].Type == parser.IdentifierNode {
-					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
-						*occurrences++
-						*locations = append(*locations, RenameLocation{
-							Line:    node.Span.Start.Line,
-							Column:  node.Span.Start.Column,
-							OldText: oldName,
-							NewText: newName,
-							Context: "PROCEDURE",
-						})
-					}
-				}
-			}
-
-		case parser.CallNode:
-			if targetType == "procedure" && len(node.Children) > 0 {
-				if node.Children[0].Type == parser.IdentifierNode {
-					if val, ok := node.Children[0].Value.(string); ok && val == oldName {
-						*occurrences++
-						*locations = append(*locations, RenameLocation{
-							Line:    node.Span.Start.Line,
-							Column:  node.Span.Start.Column,
-							OldText: oldName,
-							NewText: newName,
-							Context: "CALL",
-						})
-					}
-				}
-			}
-
-		case parser.FunctionCallNode:
-			if targetType == "function" {
-				if val, ok := node.Value.(string); ok && val == oldName {
+				if name == oldName {
 					*occurrences++
 					*locations = append(*locations, RenameLocation{
 						Line:    node.Span.Start.Line,
 						Column:  node.Span.Start.Column,
 						OldText: oldName,
 						NewText: newName,
-						Context: "FUNCTION_CALL",
+						Context: "PROCEDURE",
 					})
 				}
 			}
 		}
 
-		// Recursively search children
+		// Function definition
+		if node.Type == parser.FunctionNode && targetType == "function" {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				var name string
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					name = val
+				} else if node.Children[0].Token != "" {
+					name = node.Children[0].Token
+				}
+				if name == oldName {
+					*occurrences++
+					*locations = append(*locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "FUNCTION",
+					})
+				}
+			}
+		}
+
+		// Variable declaration
+		if node.Type == parser.DeclareNode && targetType == "variable" {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				var name string
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					name = val
+				} else if node.Children[0].Token != "" {
+					name = node.Children[0].Token
+				}
+				if name == oldName {
+					*occurrences++
+					*locations = append(*locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "DECLARE",
+					})
+				}
+			}
+		}
+
+		// CALL statement (untuk procedure rename)
+		if node.Type == parser.CallNode && targetType == "procedure" {
+			// Cek child pertama (nama procedure)
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				var name string
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					name = val
+				} else if node.Children[0].Token != "" {
+					name = node.Children[0].Token
+				}
+				if name == oldName {
+					*occurrences++
+					*locations = append(*locations, RenameLocation{
+						Line:    node.Span.Start.Line,
+						Column:  node.Span.Start.Column,
+						OldText: oldName,
+						NewText: newName,
+						Context: "CALL",
+					})
+				}
+			}
+		}
+
+		// Function call (untuk function rename)
+		if node.Type == parser.FunctionCallNode && targetType == "function" {
+			var name string
+			if val, ok := node.Value.(string); ok && val != "" {
+				name = val
+			}
+			if name == "" && len(node.Children) > 0 {
+				if node.Children[0].Type == parser.IdentifierNode {
+					if val, ok := node.Children[0].Value.(string); ok && val != "" {
+						name = val
+					} else if node.Children[0].Token != "" {
+						name = node.Children[0].Token
+					}
+				}
+			}
+			if name == oldName {
+				*occurrences++
+				*locations = append(*locations, RenameLocation{
+					Line:    node.Span.Start.Line,
+					Column:  node.Span.Start.Column,
+					OldText: oldName,
+					NewText: newName,
+					Context: "FUNCTION_CALL",
+				})
+			}
+		}
+
+		// Identifier usage (untuk variable rename)
+		if node.Type == parser.IdentifierNode && targetType == "variable" {
+			if val, ok := node.Value.(string); ok && val == oldName {
+				// Skip jika ini adalah deklarasi (sudah di-handle di atas)
+				// Kita akan handle di level atas
+			}
+		}
+
+		// Recurse into children
 		for _, child := range node.Children {
 			searchAndReplace([]parser.ASTNode{child}, oldName, newName, locations, occurrences, targetType)
 		}
@@ -3794,12 +4238,25 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 
 	// 1. Extract module name
 	for _, stmt := range program.Statements {
+		// Cek ModuleNode langsung
+		if stmt.Type == parser.ModuleNode {
+			if len(stmt.Children) > 0 && stmt.Children[0].Type == parser.IdentifierNode {
+				if name, ok := stmt.Children[0].Value.(string); ok && name != "" {
+					result.ModuleName = name
+				} else if stmt.Children[0].Token != "" {
+					result.ModuleName = stmt.Children[0].Token
+				}
+			}
+		}
+		// Cek CreateNode -> ModuleNode
 		if stmt.Type == parser.CreateNode {
 			for _, child := range stmt.Children {
 				if child.Type == parser.ModuleNode {
 					if len(child.Children) > 0 && child.Children[0].Type == parser.IdentifierNode {
-						if name, ok := child.Children[0].Value.(string); ok {
+						if name, ok := child.Children[0].Value.(string); ok && name != "" {
 							result.ModuleName = name
+						} else if child.Children[0].Token != "" {
+							result.ModuleName = child.Children[0].Token
 						}
 					}
 				}
@@ -3825,8 +4282,9 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 	// ============================================
 	// 3. Manual scan for ALL CALLs and FunctionCalls
 	// ============================================
-	callGraph := make(map[string][]string)
-	reverseCallGraph := make(map[string][]string)
+	callGraph, reverseCallGraph := BuildCallGraph(program)
+	mergedCallGraph := callGraph
+	mergedReverseCallGraph := reverseCallGraph
 
 	var scanCalls func(node parser.ASTNode, inProcedure bool, currentProc string)
 	scanCalls = func(node parser.ASTNode, inProcedure bool, currentProc string) {
@@ -3888,10 +4346,6 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 		scanCalls(stmt, false, "")
 	}
 
-	// Use manual scan results (ignore analysisResult.CallGraph)
-	mergedCallGraph := callGraph
-	mergedReverseCallGraph := reverseCallGraph
-
 	// 4. Procedures
 	for name, info := range analysisResult.Procedures {
 		proc := ProcedureInfo{
@@ -3919,10 +4373,55 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 
 	// 5. Functions
 	for name, info := range analysisResult.Functions {
+		returnType := info.ReturnType
+
+		// Jika returnType masih UNKNOWN atau kosong, cari dari AST
+		if returnType == "" || returnType == "UNKNOWN" {
+			var search func(node parser.ASTNode)
+			search = func(node parser.ASTNode) {
+				if node.Type == parser.FunctionNode {
+					if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+						var funcName string
+						if val, ok := node.Children[0].Value.(string); ok && val != "" {
+							funcName = val
+						} else if node.Children[0].Token != "" {
+							funcName = node.Children[0].Token
+						}
+						if funcName == name {
+							for _, child := range node.Children {
+								if child.Type == parser.ReturnTypeNode {
+									if val, ok := child.Value.(string); ok && val != "" {
+										returnType = val
+									} else if child.Token != "" {
+										returnType = child.Token
+									}
+									// Coba dari children jika masih kosong
+									if returnType == "" && len(child.Children) > 0 {
+										if val, ok := child.Children[0].Value.(string); ok && val != "" {
+											returnType = val
+										} else if child.Children[0].Token != "" {
+											returnType = child.Children[0].Token
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+				for _, child := range node.Children {
+					search(child)
+				}
+			}
+			for _, stmt := range program.Statements {
+				search(stmt)
+			}
+		}
+
+		// ✅ PAKAI returnType yang sudah dicari, BUKAN info.ReturnType
 		funcInfo := FunctionInfo{
 			Name:       name,
 			Line:       info.Line,
-			ReturnType: info.ReturnType,
+			ReturnType: returnType, // ← Pakai returnType, bukan info.ReturnType
 			IsCalled:   false,
 		}
 		if callers, ok := mergedReverseCallGraph[name]; ok && len(callers) > 0 {
@@ -3960,8 +4459,41 @@ func Explain(program parser.Program, analysisResult analyzer.AnalysisResult) Exp
 	}
 
 	// 7. Summary
-	result.Summary = fmt.Sprintf("Module '%s' contains %d variables, %d procedures, and %d functions.",
-		result.ModuleName, len(result.Variables), len(result.Procedures), len(result.Functions))
+	var parts []string
+
+	if len(result.Variables) > 0 {
+		word := "variables"
+		if len(result.Variables) == 1 {
+			word = "variable"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", len(result.Variables), word))
+	}
+
+	if len(result.Procedures) > 0 {
+		word := "procedures"
+		if len(result.Procedures) == 1 {
+			word = "procedure"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", len(result.Procedures), word))
+	}
+
+	if len(result.Functions) > 0 {
+		word := "functions"
+		if len(result.Functions) == 1 {
+			word = "function"
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", len(result.Functions), word))
+	}
+
+	if len(parts) == 0 {
+		result.Summary = fmt.Sprintf("Module '%s' is empty.", result.ModuleName)
+	} else if len(parts) == 1 {
+		result.Summary = fmt.Sprintf("Module '%s' contains %s.", result.ModuleName, parts[0])
+	} else if len(parts) == 2 {
+		result.Summary = fmt.Sprintf("Module '%s' contains %s and %s.", result.ModuleName, parts[0], parts[1])
+	} else {
+		result.Summary = fmt.Sprintf("Module '%s' contains %s, %s, and %s.", result.ModuleName, parts[0], parts[1], parts[2])
+	}
 
 	// 8. Warnings
 	for _, proc := range result.Procedures {
@@ -4072,6 +4604,577 @@ func FormatExplanation(result ExplanationResult) string {
 	return sb.String()
 }
 
+// ============================================
+// SEARCH FUNCTIONS
+// ============================================
+
+type SearchResult struct {
+	Query      string        `json:"query"`
+	Type       string        `json:"type"`
+	Matches    []SearchMatch `json:"matches"`
+	TotalCount int           `json:"totalCount"`
+	Message    string        `json:"message"`
+}
+
+type SearchMatch struct {
+	Name     string `json:"name"`
+	Line     int    `json:"line"`
+	Column   int    `json:"column"`
+	Context  string `json:"context"`
+	FullText string `json:"fullText"`
+}
+
+// SearchProcedure finds all occurrences of a procedure (definition and calls)
+func SearchProcedure(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// Check procedure definition
+		if node.Type == parser.ProcedureNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "PROCEDURE",
+						FullText: fmt.Sprintf("CREATE PROCEDURE %s()", val),
+					})
+				}
+			}
+		}
+
+		// ✅ Check CALL statements
+		if node.Type == parser.CallNode {
+			var calleeName string
+
+			// Coba dari children pertama (nama procedure)
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				// Coba dari Value
+				if val, ok := node.Children[0].Value.(string); ok {
+					calleeName = val
+				}
+				// Coba dari Token (karena kadang Value kosong)
+				if calleeName == "" && node.Children[0].Token != "" {
+					calleeName = node.Children[0].Token
+				}
+			}
+
+			if calleeName == name {
+				matches = append(matches, SearchMatch{
+					Name:     calleeName,
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+					Context:  "CALL",
+					FullText: fmt.Sprintf("CALL %s()", calleeName),
+				})
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	// Deduplicate
+	unique := make(map[string]SearchMatch)
+	for _, m := range matches {
+		key := fmt.Sprintf("%d:%d", m.Line, m.Column)
+		unique[key] = m
+	}
+	var deduped []SearchMatch
+	for _, m := range unique {
+		deduped = append(deduped, m)
+	}
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].Line < deduped[j].Line
+	})
+
+	if len(deduped) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "procedure",
+			Matches:    deduped,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("Procedure '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "procedure",
+		Matches:    deduped,
+		TotalCount: len(deduped),
+		Message:    fmt.Sprintf("Found %d occurrence(s) of procedure '%s'", len(deduped), name),
+	}
+}
+
+// SearchFunction finds all occurrences of a function (definition and calls)
+func SearchFunction(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// Check function definition
+		if node.Type == parser.FunctionNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					returnType := "UNKNOWN"
+					if len(node.Children) > 1 && node.Children[1].Type == parser.IdentifierNode {
+						if v, ok := node.Children[1].Value.(string); ok {
+							returnType = v
+						}
+					}
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "FUNCTION",
+						FullText: fmt.Sprintf("CREATE FUNCTION %s() RETURNS %s", val, returnType),
+					})
+				}
+			}
+		}
+
+		// Check function calls
+		if node.Type == parser.FunctionCallNode {
+			if val, ok := node.Value.(string); ok && val == name {
+				matches = append(matches, SearchMatch{
+					Name:     val,
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+					Context:  "FUNCTION_CALL",
+					FullText: fmt.Sprintf("%s()", val),
+				})
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "function",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("Function '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "function",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d occurrence(s) of function '%s'", len(matches), name),
+	}
+}
+
+// SearchVariable finds all occurrences of a variable (declaration and usage)
+func SearchVariable(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+	var declareLines map[int]bool = make(map[int]bool) // Track lines yang sudah di-declare
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		// Check variable declaration
+		if node.Type == parser.DeclareNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val == name {
+					varType := "UNKNOWN"
+					if len(node.Children) > 1 && node.Children[1].Type == parser.IdentifierNode {
+						if v, ok := node.Children[1].Value.(string); ok {
+							varType = v
+						}
+					}
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "DECLARE",
+						FullText: fmt.Sprintf("DECLARE %s %s", val, varType),
+					})
+					declareLines[node.Span.Start.Line] = true // Mark as declared
+				}
+			}
+		}
+
+		// Check identifier usage - skip if it's the declaration itself
+		if node.Type == parser.IdentifierNode {
+			if val, ok := node.Value.(string); ok && val == name {
+				// Skip if this is the declaration line (already handled)
+				if !declareLines[node.Span.Start.Line] {
+					matches = append(matches, SearchMatch{
+						Name:     val,
+						Line:     node.Span.Start.Line,
+						Column:   node.Span.Start.Column,
+						Context:  "USAGE",
+						FullText: val,
+					})
+				}
+			}
+		}
+
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	// Remove duplicates (same line and column)
+	unique := make(map[string]SearchMatch)
+	for _, m := range matches {
+		key := fmt.Sprintf("%d:%d", m.Line, m.Column)
+		unique[key] = m
+	}
+	var deduped []SearchMatch
+	for _, m := range unique {
+		deduped = append(deduped, m)
+	}
+	// Sort by line
+	sort.Slice(deduped, func(i, j int) bool {
+		return deduped[i].Line < deduped[j].Line
+	})
+
+	if len(deduped) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "variable",
+			Matches:    deduped,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("Variable '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "variable",
+		Matches:    deduped,
+		TotalCount: len(deduped),
+		Message:    fmt.Sprintf("Found %d occurrence(s) of variable '%s'", len(deduped), name),
+	}
+}
+
+// SearchCall finds all CALL statements to a specific procedure
+func SearchCall(program parser.Program, name string) SearchResult {
+	var matches []SearchMatch
+
+	var search func(node parser.ASTNode)
+	search = func(node parser.ASTNode) {
+		if node.Type == parser.CallNode {
+			var callee string
+
+			// Coba dari children pertama
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok {
+					callee = val
+				}
+				if callee == "" && node.Children[0].Token != "" {
+					callee = node.Children[0].Token
+				}
+			}
+
+			if callee == name {
+				matches = append(matches, SearchMatch{
+					Name:     callee,
+					Line:     node.Span.Start.Line,
+					Column:   node.Span.Start.Column,
+					Context:  "CALL",
+					FullText: fmt.Sprintf("CALL %s()", callee),
+				})
+			}
+		}
+		for _, child := range node.Children {
+			search(child)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		search(stmt)
+	}
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Query:      name,
+			Type:       "call",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    fmt.Sprintf("CALL to '%s' not found", name),
+		}
+	}
+
+	return SearchResult{
+		Query:      name,
+		Type:       "call",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d CALL(s) to '%s'", len(matches), name),
+	}
+}
+
+// SearchUnused finds all unused code (procedures, functions, variables)
+func SearchUnused(program parser.Program, analysisResult analyzer.AnalysisResult) SearchResult {
+	var matches []SearchMatch
+
+	// ✅ Hapus baris ini karena tidak terpakai
+	// reverseCallGraph := analysisResult.ReverseCallGraph
+
+	callGraph := analysisResult.CallGraph
+
+	// Build set of all procedures that are called (directly or indirectly) from MAIN
+	calledFromMain := make(map[string]bool)
+
+	// Start with procedures called directly from MAIN
+	var queue []string
+	if mainCalls, ok := callGraph["MAIN"]; ok {
+		for _, callee := range mainCalls {
+			if !calledFromMain[callee] {
+				calledFromMain[callee] = true
+				queue = append(queue, callee)
+			}
+		}
+	}
+
+	// BFS: mark all procedures called by procedures that are called from MAIN
+	for len(queue) > 0 {
+		current := queue[0]
+		queue = queue[1:]
+		if callees, ok := callGraph[current]; ok {
+			for _, callee := range callees {
+				if !calledFromMain[callee] {
+					calledFromMain[callee] = true
+					queue = append(queue, callee)
+				}
+			}
+		}
+	}
+
+	// Check unused procedures
+	for name, info := range analysisResult.Procedures {
+		if !calledFromMain[name] {
+			matches = append(matches, SearchMatch{
+				Name:     name,
+				Line:     info.Line,
+				Column:   0,
+				Context:  "PROCEDURE (unused)",
+				FullText: fmt.Sprintf("CREATE PROCEDURE %s()", name),
+			})
+		}
+	}
+
+	// Check unused functions
+	for name, info := range analysisResult.Functions {
+		if !calledFromMain[name] && info.ReturnType != "BUILTIN" {
+			matches = append(matches, SearchMatch{
+				Name:     name,
+				Line:     info.Line,
+				Column:   0,
+				Context:  "FUNCTION (unused)",
+				FullText: fmt.Sprintf("CREATE FUNCTION %s()", name),
+			})
+		}
+	}
+
+	// Check unused variables
+	usedVars := make(map[string]bool)
+	for _, v := range analysisResult.UsedVariables {
+		usedVars[v] = true
+	}
+	for name, info := range analysisResult.Variables {
+		if !usedVars[name] {
+			matches = append(matches, SearchMatch{
+				Name:     name,
+				Line:     info.Line,
+				Column:   0,
+				Context:  "VARIABLE (unused)",
+				FullText: fmt.Sprintf("DECLARE %s %s", name, info.Type),
+			})
+		}
+	}
+
+	// Sort by line
+	sort.Slice(matches, func(i, j int) bool {
+		return matches[i].Line < matches[j].Line
+	})
+
+	if len(matches) == 0 {
+		return SearchResult{
+			Type:       "unused",
+			Matches:    matches,
+			TotalCount: 0,
+			Message:    "No unused code found",
+		}
+	}
+
+	return SearchResult{
+		Type:       "unused",
+		Matches:    matches,
+		TotalCount: len(matches),
+		Message:    fmt.Sprintf("Found %d unused item(s)", len(matches)),
+	}
+}
+
+// FormatSearchResult formats a SearchResult for human-readable output
+func FormatSearchResult(result SearchResult) string {
+	var sb strings.Builder
+
+	if result.TotalCount == 0 {
+		sb.WriteString(fmt.Sprintf("\n🔍 Search Result: %s\n", result.Message))
+		return sb.String()
+	}
+
+	sb.WriteString(fmt.Sprintf("\n🔍 Search Result: %s\n", result.Message))
+	sb.WriteString(strings.Repeat("=", 50) + "\n\n")
+
+	for _, match := range result.Matches {
+		sb.WriteString(fmt.Sprintf("  Line %d: %s (%s)\n", match.Line, match.FullText, match.Context))
+	}
+
+	sb.WriteString(fmt.Sprintf("\n📊 Total: %d match(es)\n", result.TotalCount))
+	return sb.String()
+}
+
+func BuildCallGraph(program parser.Program) (map[string][]string, map[string][]string) {
+	callGraph := make(map[string][]string)
+	reverseCallGraph := make(map[string][]string)
+
+	var scan func(node parser.ASTNode, inProcedure bool, currentProc string)
+	scan = func(node parser.ASTNode, inProcedure bool, currentProc string) {
+		// Handle CallNode
+		if node.Type == parser.CallNode {
+			var callee string
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					callee = val
+				} else if node.Children[0].Token != "" {
+					callee = node.Children[0].Token
+				}
+			}
+			if callee == "" {
+				if val, ok := node.Value.(string); ok && val != "" {
+					callee = val
+				}
+			}
+			if callee != "" {
+				caller := "MAIN"
+				if inProcedure && currentProc != "" {
+					caller = currentProc
+				}
+				callGraph[caller] = appendUnique(callGraph[caller], callee)
+				reverseCallGraph[callee] = appendUnique(reverseCallGraph[callee], caller)
+			}
+		}
+
+		// Handle FunctionCallNode
+		if node.Type == parser.FunctionCallNode {
+			var callee string
+			if val, ok := node.Value.(string); ok && val != "" {
+				callee = val
+			}
+			if callee == "" && len(node.Children) > 0 {
+				if node.Children[0].Type == parser.IdentifierNode {
+					if val, ok := node.Children[0].Value.(string); ok && val != "" {
+						callee = val
+					} else if node.Children[0].Token != "" {
+						callee = node.Children[0].Token
+					}
+				}
+			}
+			if callee != "" {
+				caller := "MAIN"
+				if inProcedure && currentProc != "" {
+					caller = currentProc
+				}
+				callGraph[caller] = appendUnique(callGraph[caller], callee)
+				reverseCallGraph[callee] = appendUnique(reverseCallGraph[callee], caller)
+			}
+		}
+
+		// Track procedure entry - skip identifier (nama procedure)
+		if node.Type == parser.ProcedureNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				name := ""
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					name = val
+				} else if node.Children[0].Token != "" {
+					name = node.Children[0].Token
+				}
+				if name != "" {
+					// ✅ SKIP child pertama (IdentifierNode - nama procedure)
+					// Scan dari child index 1 (body statements)
+					for i := 1; i < len(node.Children); i++ {
+						scan(node.Children[i], true, name)
+					}
+					return
+				}
+			}
+		}
+
+		// Track function entry - skip identifier (nama function)
+		if node.Type == parser.FunctionNode {
+			if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
+				name := ""
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					name = val
+				} else if node.Children[0].Token != "" {
+					name = node.Children[0].Token
+				}
+				if name != "" {
+					// ✅ SKIP child pertama (IdentifierNode - nama function)
+					for i := 1; i < len(node.Children); i++ {
+						scan(node.Children[i], true, name)
+					}
+					return
+				}
+			}
+		}
+
+		// Recurse into children
+		for _, child := range node.Children {
+			scan(child, inProcedure, currentProc)
+		}
+	}
+
+	for _, stmt := range program.Statements {
+		scan(stmt, false, "")
+	}
+
+	return callGraph, reverseCallGraph
+}
+
+func getNodeName(node parser.ASTNode) string {
+	if node.Type == parser.IdentifierNode {
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
+		}
+		return node.Token
+	}
+	if node.Type == parser.FunctionCallNode {
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
+		}
+		if len(node.Children) > 0 {
+			return getNodeName(node.Children[0])
+		}
+	}
+	return ""
+}
+
 ```
 
 ---
@@ -4098,7 +5201,15 @@ func NewGenerator() *Generator {
 
 func (g *Generator) Generate(program parser.Program) string {
 	var sb strings.Builder
-	for i, stmt := range program.Statements {
+	var stmts []parser.ASTNode
+	if len(program.Statements) > 0 {
+		stmts = program.Statements
+	} else if program.Root.Type != "" {
+		stmts = program.Root.Children
+	} else {
+		return ""
+	}
+	for i, stmt := range stmts {
 		if i > 0 {
 			sb.WriteString("\n")
 		}
@@ -4112,14 +5223,26 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		return ""
 	}
 
-	_ = strings.Repeat(g.indent, level)
-
 	switch node.Type {
-	case parser.CreateNode:
-		return g.generateCreate(node, level)
+	case parser.ProgramNode:
+		return g.generateChildren(node.Children, 0)
 
 	case parser.ModuleNode:
 		return g.generateModule(node, level)
+
+	case parser.CreateNode:
+		for _, child := range node.Children {
+			if child.Type == parser.ModuleNode {
+				return g.generateModule(child, level)
+			}
+		}
+		return ""
+
+	case parser.ProcedureNode:
+		return g.generateProcedure(node, level)
+
+	case parser.FunctionNode:
+		return g.generateFunction(node, level)
 
 	case parser.DeclareNode:
 		return g.generateDeclare(node, level)
@@ -4130,38 +5253,47 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 	case parser.IfNode:
 		return g.generateIf(node, level)
 
+	case parser.WhileNode:
+		return g.generateWhile(node, level)
+
+	case parser.ForNode:
+		return g.generateFor(node, level)
+
+	case parser.ReturnNode:
+		return g.generateReturn(node, level)
+
+	case parser.ThrowNode:
+		return g.generateThrow(node, level)
+
+	case parser.CallNode:
+		return g.generateCall(node, level)
+
 	case parser.BlockNode:
 		return g.generateBlock(node, level)
 
 	case parser.IdentifierNode:
-		if name, ok := node.Value.(string); ok && name != "" {
-			return name
-		}
-		return node.Token
+		return g.getIdentifierName(node)
+
+	case parser.LiteralNode:
+		return g.formatLiteral(node)
 
 	case parser.FieldReferenceNode:
 		return g.generateFieldReference(node)
 
-	case parser.LiteralNode:
-		if str, ok := node.Value.(string); ok {
-			return "'" + str + "'"
-		}
-		if num, ok := node.Value.(float64); ok {
-			return fmt.Sprintf("%v", num)
-		}
-		return node.Token
-
 	case parser.ComparisonNode, parser.BinaryOpNode:
-		return g.generateBinaryOp(node, level)
+		return g.generateBinaryOp(node)
+
+	case parser.UnaryOpNode:
+		return g.generateUnaryOp(node)
 
 	case parser.CastNode:
-		return g.generateCast(node, level)
+		return g.generateCast(node)
 
 	case parser.CaseNode:
-		return g.generateCase(node, level)
+		return g.generateCase(node)
 
 	case parser.WhenNode:
-		return g.generateWhen(node, false)
+		return g.generateWhen(node)
 
 	case parser.IsNullNode:
 		if len(node.Children) > 0 {
@@ -4176,110 +5308,104 @@ func (g *Generator) generateNode(node parser.ASTNode, level int) string {
 		return "IS NOT NULL"
 
 	case parser.BetweenNode:
-		if len(node.Children) >= 3 {
-			expr := g.generateNode(node.Children[0], 0)
-			lower := g.generateNode(node.Children[1], 0)
-			upper := g.generateNode(node.Children[2], 0)
-			if node.Not {
-				return expr + " NOT BETWEEN " + lower + " AND " + upper
-			}
-			return expr + " BETWEEN " + lower + " AND " + upper
-		}
-		return "BETWEEN"
+		return g.generateBetween(node)
+
+	case parser.LikeNode:
+		return g.generateLike(node)
+
+	case parser.InNode:
+		return g.generateIn(node)
+
+	case parser.CoalesceNode:
+		return g.generateCoalesce(node)
+
+	case parser.NullIfNode:
+		return g.generateNullIf(node)
+
+	case parser.ParameterNode:
+		return g.generateParameter(node)
+
+	case parser.ReturnTypeNode:
+		return g.getIdentifierName(node)
 
 	case parser.ParenthesizedNode:
 		if len(node.Children) > 0 {
 			return "(" + g.generateNode(node.Children[0], 0) + ")"
 		}
 		return "()"
+	case parser.PropagateNode:
+		return g.generatePropagate(node, level)
 
-	case parser.UnaryOpNode:
-		if len(node.Children) > 0 {
-			return node.Token + " " + g.generateNode(node.Children[0], 0)
+	case parser.MoveNode:
+		return g.generateMove(node, level)
+	case parser.ContinueNode:
+		return g.generateContinue(node, level)
+	case parser.BreakNode:
+		return g.generateBreak(node, level)
+	case parser.LabelNode:
+		return g.generateLabel(node, level)
+	case parser.FunctionCallNode:
+		return g.generateFunctionCall(node)
+
+	default:
+		return g.generateChildren(node.Children, level)
+	}
+}
+
+// ============================================
+// HELPER: Get Node Value (tanpa quote untuk mode)
+// ============================================
+
+func (g *Generator) getNodeValue(node parser.ASTNode) string {
+	switch node.Type {
+	case parser.LiteralNode:
+		if val, ok := node.Value.(string); ok {
+			// Mode parameter tidak boleh di-quote
+			if val == "IN" || val == "OUT" || val == "INOUT" {
+				return val
+			}
+			return val
+		}
+		if num, ok := node.Value.(float64); ok {
+			if num == float64(int(num)) {
+				return fmt.Sprintf("%d", int(num))
+			}
+			return fmt.Sprintf("%v", num)
 		}
 		return node.Token
 
-	case parser.LikeNode:
-		if len(node.Children) >= 2 {
-			expr := g.generateNode(node.Children[0], 0)
-			pattern := g.generateNode(node.Children[1], 0)
-			if node.Not {
-				return expr + " NOT LIKE " + pattern
-			}
-			return expr + " LIKE " + pattern
+	case parser.IdentifierNode:
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
 		}
-		return "LIKE"
+		return node.Token
 
-	case parser.InNode:
-		if len(node.Children) < 2 {
-			return "IN"
+	case parser.FieldReferenceNode:
+		if val, ok := node.Value.(string); ok {
+			return val
 		}
-		expr := g.generateNode(node.Children[0], 0)
-		var values []string
-		for i := 1; i < len(node.Children); i++ {
-			values = append(values, g.generateNode(node.Children[i], 0))
-		}
-		result := expr
-		if node.Not {
-			result += " NOT IN"
-		} else {
-			result += " IN"
-		}
-		result += " (" + strings.Join(values, ", ") + ")"
-		return result
-
-	case parser.CoalesceNode:
-		var args []string
+		var parts []string
 		for _, child := range node.Children {
-			args = append(args, g.generateNode(child, 0))
+			parts = append(parts, g.getNodeValue(child))
 		}
-		return "COALESCE(" + strings.Join(args, ", ") + ")"
-
-	case parser.NullIfNode:
-		if len(node.Children) >= 2 {
-			arg1 := g.generateNode(node.Children[0], 0)
-			arg2 := g.generateNode(node.Children[1], 0)
-			return "NULLIF(" + arg1 + ", " + arg2 + ")"
-		}
-		return "NULLIF()"
+		return strings.Join(parts, ".")
 
 	default:
-		var sb strings.Builder
-		if node.Token != "" {
-			sb.WriteString(node.Token)
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
 		}
-		for _, child := range node.Children {
-			sb.WriteString(" " + g.generateNode(child, level))
-		}
-		return sb.String()
+		return node.Token
 	}
 }
 
-func (g *Generator) generateCreate(node parser.ASTNode, level int) string {
-	var sb strings.Builder
-	sb.WriteString("CREATE COMPUTE MODULE")
-	for _, child := range node.Children {
-		if child.Type == parser.ModuleNode {
-			sb.WriteString(" " + g.generateModule(child, level))
-			break
-		}
-	}
-	return sb.String()
-}
+// ============================================
+// MODULE
+// ============================================
 
 func (g *Generator) generateModule(node parser.ASTNode, level int) string {
 	var sb strings.Builder
-	moduleName := "UnnamedModule"
-	for _, child := range node.Children {
-		if child.Type == parser.IdentifierNode {
-			if name, ok := child.Value.(string); ok && name != "" {
-				moduleName = name
-				break
-			}
-		}
-	}
-
-	sb.WriteString(moduleName + "\n")
+	name := g.getModuleName(node)
+	sb.WriteString("CREATE COMPUTE MODULE " + name + "\n")
 	for _, child := range node.Children {
 		if child.Type != parser.IdentifierNode {
 			sb.WriteString(g.generateNode(child, level+1))
@@ -4289,93 +5415,477 @@ func (g *Generator) generateModule(node parser.ASTNode, level int) string {
 	return sb.String()
 }
 
-func (g *Generator) generateDeclare(node parser.ASTNode, level int) string {
-	var sb strings.Builder
-	sb.WriteString(strings.Repeat(g.indent, level) + "DECLARE ")
-
-	name := ""
-	typ := ""
+func (g *Generator) getModuleName(node parser.ASTNode) string {
 	for _, child := range node.Children {
 		if child.Type == parser.IdentifierNode {
-			if name == "" {
-				if v, ok := child.Value.(string); ok {
-					name = v
-				} else {
-					name = child.Token
-				}
-			} else {
-				typ = child.Token
-			}
+			return g.getIdentifierName(child)
 		}
 	}
-	sb.WriteString(name + " " + typ + ";\n")
+	return "UnnamedModule"
+}
+
+// ============================================
+// PROCEDURE
+// ============================================
+
+func (g *Generator) generateProcedure(node parser.ASTNode, level int) string {
+	var sb strings.Builder
+	indent := strings.Repeat(g.indent, level)
+	name := g.getProcedureNameFromNode(node)
+	params := g.getParameterList(node)
+	sb.WriteString(indent + "CREATE PROCEDURE " + name + "(" + params + ")\n")
+	sb.WriteString(indent + "BEGIN\n")
+	for _, child := range node.Children {
+		if child.Type != parser.IdentifierNode && child.Type != parser.ParameterNode {
+			sb.WriteString(g.generateNode(child, level+1))
+		}
+	}
+	sb.WriteString(indent + "END;\n")
 	return sb.String()
 }
 
-func (g *Generator) generateSet(node parser.ASTNode, level int) string {
-	var sb strings.Builder
-	sb.WriteString(strings.Repeat(g.indent, level) + "SET ")
+func (g *Generator) getProcedureNameFromNode(node parser.ASTNode) string {
+	for _, child := range node.Children {
+		if child.Type == parser.IdentifierNode {
+			return g.getIdentifierName(child)
+		}
+	}
+	return "UnnamedProc"
+}
 
+func (g *Generator) getParameterList(node parser.ASTNode) string {
+	var parts []string
+	for _, child := range node.Children {
+		if child.Type == parser.ParameterNode {
+			parts = append(parts, g.generateParameter(child))
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func (g *Generator) generateParameter(node parser.ASTNode) string {
+	if len(node.Children) < 3 {
+		return ""
+	}
+	// Gunakan getNodeValue, bukan generateNode (agar tidak di-quote)
+	mode := g.getNodeValue(node.Children[0])
+	name := g.getNodeValue(node.Children[1])
+	typ := g.getNodeValue(node.Children[2])
+	return mode + " " + name + " " + typ
+}
+
+// ============================================
+// FUNCTION
+// ============================================
+
+func (g *Generator) generateFunction(node parser.ASTNode, level int) string {
+	var sb strings.Builder
+	indent := strings.Repeat(g.indent, level)
+	name := g.getFunctionNameFromNode(node)
+	params := g.getParameterList(node)
+	returnType := g.getReturnType(node)
+	sb.WriteString(indent + "CREATE FUNCTION " + name + "(" + params + ") RETURNS " + returnType + "\n")
+	sb.WriteString(indent + "BEGIN\n")
+	for _, child := range node.Children {
+		if child.Type != parser.IdentifierNode && child.Type != parser.ParameterNode && child.Type != parser.ReturnTypeNode {
+			sb.WriteString(g.generateNode(child, level+1))
+		}
+	}
+	sb.WriteString(indent + "END;\n")
+	return sb.String()
+}
+
+func (g *Generator) getFunctionNameFromNode(node parser.ASTNode) string {
+	for _, child := range node.Children {
+		if child.Type == parser.IdentifierNode {
+			return g.getIdentifierName(child)
+		}
+	}
+	return "UnnamedFunc"
+}
+
+func (g *Generator) getReturnType(node parser.ASTNode) string {
+	for _, child := range node.Children {
+		if child.Type == parser.ReturnTypeNode {
+			// Ambil dari value
+			if val, ok := child.Value.(string); ok && val != "" {
+				return val
+			}
+			// Atau dari token
+			if child.Token != "" {
+				return child.Token
+			}
+			// Atau dari children
+			if len(child.Children) > 0 {
+				return g.getNodeValue(child.Children[0])
+			}
+		}
+	}
+	return "INTEGER" // Default
+}
+
+// ============================================
+// DECLARE
+// ============================================
+
+func (g *Generator) generateDeclare(node parser.ASTNode, level int) string {
+	var name, typ string
+	for _, child := range node.Children {
+		if child.Type == parser.IdentifierNode {
+			if name == "" {
+				name = g.getIdentifierName(child)
+			} else {
+				typ = g.getIdentifierName(child)
+			}
+		}
+	}
+	if name == "" || typ == "" {
+		return ""
+	}
+	return strings.Repeat(g.indent, level) + "DECLARE " + name + " " + typ + ";\n"
+}
+
+// ============================================
+// SET
+// ============================================
+
+func (g *Generator) generateSet(node parser.ASTNode, level int) string {
 	var target, value string
 	for _, child := range node.Children {
 		if child.Type == parser.BlockNode {
 			if child.Token == "target" && len(child.Children) > 0 {
 				target = g.generateNode(child.Children[0], 0)
 			} else if child.Token == "value" && len(child.Children) > 0 {
-				value = g.generateNode(child.Children[0], 0)
+				// Cek apakah value adalah function call
+				if child.Children[0].Type == parser.FunctionCallNode {
+					value = g.generateFunctionCall(child.Children[0])
+				} else {
+					value = g.generateNode(child.Children[0], 0)
+				}
 			}
 		}
 	}
-
-	sb.WriteString(target + " = " + value + ";\n")
-	return sb.String()
+	if target == "" || value == "" {
+		return ""
+	}
+	return strings.Repeat(g.indent, level) + "SET " + target + " = " + value + ";\n"
 }
+
+// ============================================
+// IF
+// ============================================
 
 func (g *Generator) generateIf(node parser.ASTNode, level int) string {
 	var sb strings.Builder
-	indentStr := strings.Repeat(g.indent, level)
-
-	sb.WriteString(indentStr + "IF ")
-
-	if len(node.Children) > 0 {
-		cond := node.Children[0]
-		sb.WriteString(g.generateNode(cond, 0))
+	indent := strings.Repeat(g.indent, level)
+	if len(node.Children) == 0 {
+		return ""
 	}
-
-	sb.WriteString(" THEN\n")
-
+	cond := g.generateNode(node.Children[0], 0)
+	sb.WriteString(indent + "IF " + cond + " THEN\n")
 	if len(node.Children) > 1 {
 		thenBlock := node.Children[1]
 		for _, stmt := range thenBlock.Children {
 			sb.WriteString(g.generateNode(stmt, level+1))
 		}
 	}
-
 	if len(node.Children) > 2 {
 		elseBlock := node.Children[2]
-		sb.WriteString(indentStr + "ELSE\n")
+		sb.WriteString(indent + "ELSE\n")
 		for _, stmt := range elseBlock.Children {
 			sb.WriteString(g.generateNode(stmt, level+1))
 		}
 	}
-
-	sb.WriteString(indentStr + "END IF;\n")
+	sb.WriteString(indent + "END IF;\n")
 	return sb.String()
 }
 
+// ============================================
+// WHILE
+// ============================================
+
+func (g *Generator) generateWhile(node parser.ASTNode, level int) string {
+	var sb strings.Builder
+	indent := strings.Repeat(g.indent, level)
+	if len(node.Children) == 0 {
+		return ""
+	}
+	cond := g.generateNode(node.Children[0], 0)
+	sb.WriteString(indent + "WHILE " + cond + " DO\n")
+	if len(node.Children) > 1 {
+		body := node.Children[1]
+		for _, stmt := range body.Children {
+			sb.WriteString(g.generateNode(stmt, level+1))
+		}
+	}
+	sb.WriteString(indent + "END WHILE;\n")
+	return sb.String()
+}
+
+// ============================================
+// FOR
+// ============================================
+
+func (g *Generator) generateFor(node parser.ASTNode, level int) string {
+	var sb strings.Builder
+	indent := strings.Repeat(g.indent, level)
+	if len(node.Children) == 0 {
+		return ""
+	}
+	var varName string
+	var expr string
+	for i, child := range node.Children {
+		if i == 0 && child.Type == parser.IdentifierNode {
+			varName = g.getIdentifierName(child)
+		} else if child.Type != parser.BlockNode {
+			expr = g.generateNode(child, 0)
+		}
+	}
+	if varName != "" {
+		sb.WriteString(indent + "FOR " + varName + " AS " + expr + " DO\n")
+	} else {
+		sb.WriteString(indent + "FOR " + expr + " DO\n")
+	}
+	for _, child := range node.Children {
+		if child.Type == parser.BlockNode {
+			for _, stmt := range child.Children {
+				sb.WriteString(g.generateNode(stmt, level+1))
+			}
+		}
+	}
+	sb.WriteString(indent + "END FOR;\n")
+	return sb.String()
+}
+
+// ============================================
+// RETURN
+// ============================================
+
+func (g *Generator) generateReturn(node parser.ASTNode, level int) string {
+	if len(node.Children) > 0 {
+		expr := g.generateNode(node.Children[0], 0)
+		return strings.Repeat(g.indent, level) + "RETURN " + expr + ";\n"
+	}
+	return strings.Repeat(g.indent, level) + "RETURN;\n"
+}
+
+// ============================================
+// THROW
+// ============================================
+
+func (g *Generator) generateThrow(node parser.ASTNode, level int) string {
+	if len(node.Children) > 0 {
+		expr := g.generateNode(node.Children[0], 0)
+		return strings.Repeat(g.indent, level) + "THROW " + expr + ";\n"
+	}
+	return strings.Repeat(g.indent, level) + "THROW;\n"
+}
+
+// ============================================
+// CALL
+// ============================================
+
+func (g *Generator) generateCall(node parser.ASTNode, level int) string {
+	var name string
+	var args []string
+	for i, child := range node.Children {
+		if i == 0 && child.Type == parser.IdentifierNode {
+			name = g.getIdentifierName(child)
+		} else {
+			args = append(args, g.generateNode(child, 0))
+		}
+	}
+	if name == "" {
+		return ""
+	}
+	return strings.Repeat(g.indent, level) + "CALL " + name + "(" + strings.Join(args, ", ") + ");\n"
+}
+
+// ============================================
+// BLOCK
+// ============================================
+
 func (g *Generator) generateBlock(node parser.ASTNode, level int) string {
 	var sb strings.Builder
-
-	if node.Token == "else" && len(node.Children) > 0 {
-		sb.WriteString("ELSE " + g.generateNode(node.Children[0], 0))
-		return sb.String()
-	}
-
 	for _, child := range node.Children {
 		sb.WriteString(g.generateNode(child, level))
 	}
 	return sb.String()
 }
+
+// ============================================
+// EXPRESSIONS
+// ============================================
+
+func (g *Generator) generateBinaryOp(node parser.ASTNode) string {
+	if len(node.Children) != 2 {
+		return node.Token
+	}
+	left := g.generateNode(node.Children[0], 0)
+	right := g.generateNode(node.Children[1], 0)
+	return left + " " + node.Token + " " + right
+}
+
+func (g *Generator) generateUnaryOp(node parser.ASTNode) string {
+	if len(node.Children) == 0 {
+		return node.Token
+	}
+	operand := g.generateNode(node.Children[0], 0)
+	return node.Token + " " + operand
+}
+
+func (g *Generator) generateCast(node parser.ASTNode) string {
+	if len(node.Children) < 2 {
+		return "CAST"
+	}
+	expr := g.generateNode(node.Children[0], 0)
+	typ := g.generateNode(node.Children[1], 0)
+	return "CAST(" + expr + " AS " + typ + ")"
+}
+
+func (g *Generator) generateCase(node parser.ASTNode) string {
+	var sb strings.Builder
+
+	// Cek apakah ini simple CASE atau searched CASE
+	isSimpleCase := false
+	var caseExpr string
+	var whenNodes []parser.ASTNode
+	var elseNode parser.ASTNode
+
+	for i, child := range node.Children {
+		if i == 0 && child.Type != parser.WhenNode {
+			// Simple CASE: ada expression setelah CASE
+			isSimpleCase = true
+			caseExpr = g.generateNode(child, 0)
+		} else if child.Type == parser.WhenNode {
+			whenNodes = append(whenNodes, child)
+		} else if child.Type == parser.BlockNode && child.Token == "else" {
+			elseNode = child
+		}
+	}
+
+	// Tulis CASE
+	if isSimpleCase {
+		sb.WriteString("CASE " + caseExpr)
+	} else {
+		sb.WriteString("CASE")
+	}
+
+	// Tulis WHEN clauses (masing-masing di baris baru dengan indent)
+	for _, when := range whenNodes {
+		sb.WriteString("\n        " + g.generateWhen(when))
+	}
+
+	// Tulis ELSE jika ada
+	if elseNode.Type != "" && len(elseNode.Children) > 0 {
+		elseExpr := g.generateNode(elseNode.Children[0], 0)
+		sb.WriteString("\n        ELSE " + elseExpr)
+	}
+
+	// Tulis END
+	sb.WriteString("\n    END")
+
+	return sb.String()
+}
+
+func (g *Generator) generateWhen(node parser.ASTNode) string {
+	if len(node.Children) < 2 {
+		return "WHEN"
+	}
+	cond := g.generateNode(node.Children[0], 0)
+	result := g.generateNode(node.Children[1], 0)
+	return "WHEN " + cond + " THEN " + result
+}
+
+func (g *Generator) generateBetween(node parser.ASTNode) string {
+	if len(node.Children) < 3 {
+		return "BETWEEN"
+	}
+	expr := g.generateNode(node.Children[0], 0)
+	low := g.generateNode(node.Children[1], 0)
+	high := g.generateNode(node.Children[2], 0)
+	if node.Not {
+		return expr + " NOT BETWEEN " + low + " AND " + high
+	}
+	return expr + " BETWEEN " + low + " AND " + high
+}
+
+func (g *Generator) generateLike(node parser.ASTNode) string {
+	if len(node.Children) < 2 {
+		return "LIKE"
+	}
+	expr := g.generateNode(node.Children[0], 0)
+	pattern := g.generateNode(node.Children[1], 0)
+	if node.Not {
+		return expr + " NOT LIKE " + pattern
+	}
+	return expr + " LIKE " + pattern
+}
+
+func (g *Generator) generateIn(node parser.ASTNode) string {
+	if len(node.Children) < 2 {
+		return "IN"
+	}
+	expr := g.generateNode(node.Children[0], 0)
+	var values []string
+	for i := 1; i < len(node.Children); i++ {
+		values = append(values, g.generateNode(node.Children[i], 0))
+	}
+	if node.Not {
+		return expr + " NOT IN (" + strings.Join(values, ", ") + ")"
+	}
+	return expr + " IN (" + strings.Join(values, ", ") + ")"
+}
+
+func (g *Generator) generateCoalesce(node parser.ASTNode) string {
+	var args []string
+	for _, child := range node.Children {
+		args = append(args, g.generateNode(child, 0))
+	}
+	return "COALESCE(" + strings.Join(args, ", ") + ")"
+}
+
+func (g *Generator) generateNullIf(node parser.ASTNode) string {
+	if len(node.Children) < 2 {
+		return "NULLIF()"
+	}
+	arg1 := g.generateNode(node.Children[0], 0)
+	arg2 := g.generateNode(node.Children[1], 0)
+	return "NULLIF(" + arg1 + ", " + arg2 + ")"
+}
+
+func (g *Generator) generateFunctionCall(node parser.ASTNode) string {
+	var funcName string
+	var args []string
+
+	// Ambil nama function
+	if val, ok := node.Value.(string); ok {
+		funcName = val
+	} else if len(node.Children) > 0 {
+		funcName = g.getIdentifierName(node.Children[0])
+	}
+
+	// Ambil arguments (skip first child = function name)
+	for i, child := range node.Children {
+		if i == 0 {
+			continue // skip function name identifier
+		}
+		// Generate each argument
+		arg := g.generateNode(child, 0)
+		if arg != "" {
+			args = append(args, arg)
+		}
+	}
+
+	if funcName == "" {
+		return "()"
+	}
+	return funcName + "(" + strings.Join(args, ", ") + ")"
+}
+
+// ============================================
+// FIELD REFERENCE
+// ============================================
 
 func (g *Generator) generateFieldReference(node parser.ASTNode) string {
 	if node.Value != nil {
@@ -4390,83 +5900,107 @@ func (g *Generator) generateFieldReference(node parser.ASTNode) string {
 	return strings.Join(parts, ".")
 }
 
-func (g *Generator) generateBinaryOp(node parser.ASTNode, level int) string {
-	if len(node.Children) != 2 {
+// ============================================
+// HELPERS
+// ============================================
+
+func (g *Generator) getIdentifierName(node parser.ASTNode) string {
+	if node.Type == parser.IdentifierNode {
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
+		}
 		return node.Token
 	}
-	left := g.generateNode(node.Children[0], 0)
-	right := g.generateNode(node.Children[1], 0)
-	return left + " " + node.Token + " " + right
+	return ""
 }
 
-func (g *Generator) generateCast(node parser.ASTNode, level int) string {
+func (g *Generator) formatLiteral(node parser.ASTNode) string {
+	if val, ok := node.Value.(string); ok {
+		// Mode parameter tidak boleh di-quote
+		if val == "IN" || val == "OUT" || val == "INOUT" {
+			return val
+		}
+		if strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'") {
+			return val
+		}
+		return "'" + val + "'"
+	}
+	if num, ok := node.Value.(float64); ok {
+		if num == float64(int(num)) {
+			return fmt.Sprintf("%d", int(num))
+		}
+		return fmt.Sprintf("%v", num)
+	}
+	return node.Token
+}
+
+func (g *Generator) generateChildren(children []parser.ASTNode, level int) string {
 	var sb strings.Builder
-
-	sb.WriteString("CAST(")
-
-	if len(node.Children) > 0 {
-		sb.WriteString(g.generateNode(node.Children[0], 0))
+	for _, child := range children {
+		sb.WriteString(g.generateNode(child, level))
 	}
-
-	sb.WriteString(" AS ")
-
-	if len(node.Children) > 1 {
-		sb.WriteString(g.generateNode(node.Children[1], 0))
-	}
-
-	sb.WriteString(")")
-
 	return sb.String()
 }
 
-func (g *Generator) generateCase(node parser.ASTNode, level int) string {
-	var sb strings.Builder
+func (g *Generator) generatePropagate(node parser.ASTNode, level int) string {
+	indent := strings.Repeat(g.indent, level)
 
-	sb.WriteString("CASE")
-
-	if len(node.Children) > 0 && node.Children[0].Type != parser.WhenNode {
-		sb.WriteString(" " + g.generateNode(node.Children[0], 0))
-
-		for i := 1; i < len(node.Children); i++ {
-			child := node.Children[i]
-			if child.Type == parser.WhenNode {
-				sb.WriteString(" " + g.generateWhen(child, true))
-			} else if child.Type == parser.BlockNode && child.Token == "else" {
-				sb.WriteString(" " + g.generateNode(child, 0))
-			}
-		}
-	} else {
-		for _, child := range node.Children {
-			if child.Type == parser.WhenNode {
-				sb.WriteString(" " + g.generateWhen(child, false))
-			} else if child.Type == parser.BlockNode && child.Token == "else" {
-				sb.WriteString(" " + g.generateNode(child, 0))
-			}
-		}
+	if len(node.Children) == 0 {
+		return indent + "PROPAGATE;\n"
 	}
 
-	sb.WriteString(" END")
-	return sb.String()
+	var exprs []string
+	for _, child := range node.Children {
+		exprs = append(exprs, g.generateNode(child, 0))
+	}
+
+	return indent + "PROPAGATE " + strings.Join(exprs, ", ") + ";\n"
 }
 
-func (g *Generator) generateWhen(node parser.ASTNode, isSimpleCase bool) string {
-	var sb strings.Builder
+// ============================================
+// MOVE
+// ============================================
 
-	sb.WriteString("WHEN ")
-
+func (g *Generator) generateMove(node parser.ASTNode, level int) string {
+	indent := strings.Repeat(g.indent, level)
 	if len(node.Children) >= 2 {
-		if isSimpleCase {
-			sb.WriteString(g.generateNode(node.Children[0], 0))
-			sb.WriteString(" THEN ")
-			sb.WriteString(g.generateNode(node.Children[1], 0))
-		} else {
-			sb.WriteString(g.generateNode(node.Children[0], 0))
-			sb.WriteString(" THEN ")
-			sb.WriteString(g.generateNode(node.Children[1], 0))
-		}
+		target := g.generateNode(node.Children[0], 0)
+		source := g.generateNode(node.Children[1], 0)
+		return indent + "MOVE " + target + " TO " + source + ";\n"
 	}
+	return indent + "MOVE;\n"
+}
 
-	return sb.String()
+// ============================================
+// CONTINUE
+// ============================================
+
+func (g *Generator) generateContinue(node parser.ASTNode, level int) string {
+	indent := strings.Repeat(g.indent, level)
+	if node.Value != nil {
+		return indent + "CONTINUE " + node.Value.(string) + ";\n"
+	}
+	return indent + "CONTINUE;\n"
+}
+
+// ============================================
+// BREAK
+// ============================================
+
+func (g *Generator) generateBreak(node parser.ASTNode, level int) string {
+	return strings.Repeat(g.indent, level) + "BREAK;\n"
+}
+
+// ============================================
+// LABEL
+// ============================================
+
+func (g *Generator) generateLabel(node parser.ASTNode, level int) string {
+	indent := strings.Repeat(g.indent, level)
+	if node.Value != nil {
+		return indent + "LABEL " + node.Value.(string) + ";\n"
+	}
+	return indent + "LABEL;\n"
 }
 
 ```
@@ -4862,13 +6396,30 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 
 	case parser.FunctionNode:
 		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
-			if name, ok := node.Children[0].Value.(string); ok {
+			if name, ok := node.Children[0].Value.(string); ok && name != "" {
+				returnType := "UNKNOWN"
+				// Cari ReturnTypeNode di children
+				for _, child := range node.Children {
+					if child.Type == parser.ReturnTypeNode {
+						if val, ok := child.Value.(string); ok && val != "" {
+							returnType = val
+						} else if child.Token != "" {
+							returnType = child.Token
+						} else if len(child.Children) > 0 {
+							if val, ok := child.Children[0].Value.(string); ok && val != "" {
+								returnType = val
+							} else if child.Children[0].Token != "" {
+								returnType = child.Children[0].Token
+							}
+						}
+					}
+				}
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
-					ReturnType: "UNKNOWN",
+					ReturnType: returnType,
 					Line:       node.Span.Start.Line,
 				}
-				a.moduleFunctions[name] = true // ← Pakai map
+				a.moduleFunctions[name] = true
 				a.currentScope = name
 			}
 		}
@@ -4898,14 +6449,23 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 		a.currentScope = ""
 
 	case parser.CallNode:
+		var callee string
 		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
-			if callee, ok := node.Children[0].Value.(string); ok {
-				caller := a.currentScope
-				if caller != "" {
-					a.callGraph[caller] = appendUnique(a.callGraph[caller], callee)
-					a.reverseCallGraph[callee] = appendUnique(a.reverseCallGraph[callee], caller)
-				}
+			if val, ok := node.Children[0].Value.(string); ok && val != "" {
+				callee = val
 			}
+			if callee == "" && node.Children[0].Token != "" {
+				callee = node.Children[0].Token
+			}
+		}
+		if callee != "" {
+			// ✅ HANYA jika currentScope tidak kosong
+			if a.currentScope != "" {
+				a.callGraph[a.currentScope] = appendUnique(a.callGraph[a.currentScope], callee)
+				a.reverseCallGraph[callee] = appendUnique(a.reverseCallGraph[callee], a.currentScope)
+			}
+			// ❌ JANGAN tambahkan ke MAIN secara otomatis
+			// Hanya CALL di root yang boleh masuk MAIN
 		}
 		for _, child := range node.Children {
 			a.analyzeNode(child)
@@ -4939,19 +6499,33 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 		}
 
 	case parser.FunctionCallNode:
-		if name, ok := node.Value.(string); ok {
-			if _, exists := a.functions[name]; !exists {
-				a.functions[name] = FunctionInfo{
+		var funcName string
+		if val, ok := node.Value.(string); ok && val != "" {
+			funcName = val
+		}
+		if funcName == "" && len(node.Children) > 0 {
+			if node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					funcName = val
+				} else if node.Children[0].Token != "" {
+					funcName = node.Children[0].Token
+				}
+			}
+		}
+		if funcName != "" {
+			if _, exists := a.functions[funcName]; !exists {
+				a.functions[funcName] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "BUILTIN",
 					Line:       node.Span.Start.Line,
 				}
 			}
-			caller := a.currentScope
-			if caller != "" {
-				a.callGraph[caller] = appendUnique(a.callGraph[caller], name)
-				a.reverseCallGraph[name] = appendUnique(a.reverseCallGraph[name], caller)
+			// ✅ HANYA jika currentScope tidak kosong
+			if a.currentScope != "" {
+				a.callGraph[a.currentScope] = appendUnique(a.callGraph[a.currentScope], funcName)
+				a.reverseCallGraph[funcName] = appendUnique(a.reverseCallGraph[funcName], a.currentScope)
 			}
+			// ❌ JANGAN tambahkan ke MAIN secara otomatis
 		}
 		for _, child := range node.Children {
 			a.analyzeNode(child)
@@ -5013,10 +6587,16 @@ func NewPrinter() *Printer {
 
 func (p *Printer) PrintProgram(program parser.Program) string {
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Program %s\n", programSpan(program)))
 
-	for _, stmt := range program.Statements {
-		sb.WriteString(p.printNode(stmt, 1))
+	// If root exists, print it
+	if program.Root.Type != "" {
+		sb.WriteString(p.printNode(program.Root, 0))
+	} else {
+		// Fallback to old behavior
+		sb.WriteString(fmt.Sprintf("Program %s\n", programSpan(program)))
+		for _, stmt := range program.Statements {
+			sb.WriteString(p.printNode(stmt, 1))
+		}
 	}
 
 	return sb.String()
@@ -5030,136 +6610,431 @@ func (p *Printer) printNode(node parser.ASTNode, level int) string {
 	indent := strings.Repeat(p.indent, level)
 	var sb strings.Builder
 
-	displayName := string(node.Type)
+	// Special handling untuk node yang butuh format khusus
 	switch node.Type {
-	case parser.CreateNode:
-		displayName = "CreateModule"
-	case parser.ModuleNode:
-		if node.Value != nil {
-			if val, ok := node.Value.(string); ok && val == "COMPUTE" {
-				displayName = "ComputeModule"
-			} else {
-				displayName = "Module"
-			}
-		} else {
-			displayName = "Module"
-		}
-	case parser.DeclareNode:
-		displayName = "Declare"
-	case parser.SetNode:
-		displayName = "Set"
 	case parser.IfNode:
-		displayName = "If"
-		// Print span
 		spanStr := node.Span.String()
-		sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, displayName, spanStr))
-		// Print children
+		sb.WriteString(fmt.Sprintf("%sIf %s\n", indent, spanStr))
 		for _, child := range node.Children {
 			sb.WriteString(p.printNode(child, level+1))
 		}
 		return sb.String()
 
-	case parser.BlockNode:
-		switch node.Token {
-		case "condition":
-			displayName = "Condition"
-		case "then":
-			displayName = "Then"
-		case "else":
-			displayName = "Else"
-		case "target":
-			displayName = "Target"
-		case "value":
-			displayName = "Value"
-		default:
-			displayName = "Block"
+	case parser.ParameterNode:
+		if len(node.Children) >= 3 {
+			mode := p.getNodeValue(node.Children[0])
+			name := p.getNodeValue(node.Children[1])
+			typ := p.getNodeValue(node.Children[2])
+			return fmt.Sprintf("%sParameter [%s]:\n%s  Mode: %s\n%s  Name: %s\n%s  Type: %s\n",
+				indent, node.Span.String(),
+				indent, mode,
+				indent, name,
+				indent, typ)
 		}
-	case parser.ComparisonNode:
-		if node.Token != "" {
-			displayName = fmt.Sprintf("Comparison (%s)", node.Token)
-		} else {
-			displayName = "Comparison"
-		}
+		return fmt.Sprintf("%sParameter [%s]\n", indent, node.Span.String())
 
-	case parser.FieldReferenceNode:
-		if node.Value != nil {
-			if path, ok := node.Value.(string); ok {
-				displayName = fmt.Sprintf("FieldReference (%s)", path)
-			} else {
-				displayName = "FieldReference"
+	case parser.DeclareNode:
+		var name, typ string
+		for _, child := range node.Children {
+			if child.Type == parser.IdentifierNode {
+				if name == "" {
+					name = p.getNodeValue(child)
+				} else {
+					typ = p.getNodeValue(child)
+				}
 			}
-		} else {
-			displayName = "FieldReference"
 		}
+		return fmt.Sprintf("%sDeclare [%s]: %s %s\n",
+			indent, node.Span.String(), name, typ)
 
-	case parser.IdentifierNode:
-		if name, ok := node.Value.(string); ok && name != "" && name != "error" {
-			displayName = fmt.Sprintf("Identifier: %s", name)
-		} else {
-			displayName = fmt.Sprintf("Identifier: %s", node.Token)
+	case parser.SetNode:
+		var target, value string
+		for _, child := range node.Children {
+			if child.Type == parser.BlockNode {
+				if child.Token == "target" && len(child.Children) > 0 {
+					target = p.getNodeValue(child.Children[0])
+				} else if child.Token == "value" && len(child.Children) > 0 {
+					// Special handling untuk FunctionCall
+					if child.Children[0].Type == parser.FunctionCallNode {
+						value = p.getFunctionCallString(child.Children[0])
+					} else {
+						value = p.getNodeValue(child.Children[0])
+					}
+				}
+			}
 		}
-
-	case parser.LiteralNode:
-		if valStr, ok := node.Value.(string); ok {
-			displayName = fmt.Sprintf("Literal: '%s'", valStr)
-		} else if num, ok := node.Value.(float64); ok {
-			displayName = fmt.Sprintf("Literal: %v", num)
-		} else {
-			displayName = "Literal"
+		if value == "" {
+			value = "?"
 		}
+		return fmt.Sprintf("%sSet [%s]: %s = %s\n",
+			indent, node.Span.String(), target, value)
 
-	case parser.CastNode:
-		displayName = "Cast"
-	case parser.CaseNode:
-		displayName = "Case"
-	case parser.WhenNode:
-		displayName = "When"
-	case parser.IsNullNode:
-		displayName = "IsNull"
-	case parser.IsNotNullNode:
-		displayName = "IsNotNull"
-	case parser.BetweenNode:
-		if node.Not {
-			displayName = "Between (NOT)"
-		} else {
-			displayName = "Between"
+	case parser.CallNode:
+		var callee string
+		var args []string
+		for i, child := range node.Children {
+			if i == 0 {
+				callee = p.getNodeValue(child)
+			} else {
+				args = append(args, p.getNodeValue(child))
+			}
 		}
-	case parser.UnaryOpNode:
-		displayName = fmt.Sprintf("UnaryOp (%s)", node.Token)
-	case parser.BinaryOpNode:
-		displayName = fmt.Sprintf("BinaryOp (%s)", node.Token)
-	case parser.ParenthesizedNode:
-		displayName = "Parenthesized"
-
-	case parser.LikeNode:
-		if node.Not {
-			displayName = "Like (NOT)"
-		} else {
-			displayName = "Like"
+		if len(args) > 0 {
+			return fmt.Sprintf("%sCall [%s]: %s(%s)\n",
+				indent, node.Span.String(), callee, strings.Join(args, ", "))
 		}
+		return fmt.Sprintf("%sCall [%s]: %s\n",
+			indent, node.Span.String(), callee)
 
-	case parser.InNode:
-		if node.Not {
-			displayName = "In (NOT)"
-		} else {
-			displayName = "In"
+	case parser.FunctionCallNode:
+		funcName := p.getNodeValue(node)
+		var args []string
+		// Skip the first child (function name identifier)
+		for i, child := range node.Children {
+			if i == 0 {
+				continue
+			}
+			if child.Type != "" {
+				val := p.getNodeValue(child)
+				if val != "" && val != "?" {
+					args = append(args, val)
+				}
+			}
 		}
-	case parser.CoalesceNode:
-		displayName = "Coalesce"
+		if len(args) > 0 {
+			return fmt.Sprintf("%sFunctionCall [%s]: %s(%s)\n",
+				indent, node.Span.String(), funcName, strings.Join(args, ", "))
+		}
+		return fmt.Sprintf("%sFunctionCall [%s]: %s()\n",
+			indent, node.Span.String(), funcName)
+	case parser.ReturnTypeNode:
+		return fmt.Sprintf("%sReturnType: %s [%s]\n",
+			indent, p.getNodeValue(node), node.Span.String())
 
-	case parser.NullIfNode:
-		displayName = "NullIf"
+	case parser.ReturnNode:
+		var val string
+		if len(node.Children) > 0 {
+			val = p.getNodeValue(node.Children[0])
+		}
+		if val != "" {
+			return fmt.Sprintf("%sReturn [%s]: %s\n",
+				indent, node.Span.String(), val)
+		}
+		return fmt.Sprintf("%sReturn [%s]\n", indent, node.Span.String())
+	case parser.PropagateNode:
+		if len(node.Children) > 0 {
+			var exprs []string
+			for _, child := range node.Children {
+				exprs = append(exprs, p.getNodeValue(child))
+			}
+			return fmt.Sprintf("%sPropagate [%s]: %s\n",
+				indent, node.Span.String(), strings.Join(exprs, ", "))
+		}
+		return fmt.Sprintf("%sPropagate [%s]\n", indent, node.Span.String())
 
 	}
-
+	// Get display name untuk node lainnya
+	displayName := p.getDisplayName(node)
 	spanStr := node.Span.String()
 	sb.WriteString(fmt.Sprintf("%s%s %s\n", indent, displayName, spanStr))
 
+	// Print children with proper indentation
 	for _, child := range node.Children {
 		sb.WriteString(p.printNode(child, level+1))
 	}
 
 	return sb.String()
+}
+
+// getDisplayName returns the display name for a node
+func (p *Printer) getDisplayName(node parser.ASTNode) string {
+	switch node.Type {
+	case parser.CreateNode:
+		return "CreateModule"
+	case parser.ModuleNode:
+		if node.Value != nil {
+			if val, ok := node.Value.(string); ok && val == "COMPUTE" {
+				return "ComputeModule"
+			}
+		}
+		return "Module"
+	case parser.DeclareNode:
+		return "Declare"
+	case parser.SetNode:
+		return "Set"
+	case parser.BlockNode:
+		switch node.Token {
+		case "condition":
+			return "Condition"
+		case "then":
+			return "Then"
+		case "else":
+			return "Else"
+		case "target":
+			return "Target"
+		case "value":
+			return "Value"
+		default:
+			return "Block"
+		}
+	case parser.ComparisonNode:
+		if node.Token != "" {
+			return fmt.Sprintf("Comparison (%s)", node.Token)
+		}
+		return "Comparison"
+	case parser.FieldReferenceNode:
+		if node.Value != nil {
+			if path, ok := node.Value.(string); ok {
+				return fmt.Sprintf("FieldReference (%s)", path)
+			}
+		}
+		return "FieldReference"
+	case parser.IdentifierNode:
+		if name, ok := node.Value.(string); ok && name != "" {
+			return fmt.Sprintf("Identifier: %s", name)
+		}
+		return fmt.Sprintf("Identifier: %s", node.Token)
+	case parser.LiteralNode:
+		if valStr, ok := node.Value.(string); ok {
+			return fmt.Sprintf("Literal: '%s'", valStr)
+		}
+		if num, ok := node.Value.(float64); ok {
+			return fmt.Sprintf("Literal: %v", num)
+		}
+		return "Literal"
+	case parser.CastNode:
+		return "Cast"
+	case parser.CaseNode:
+		return "Case"
+	case parser.WhenNode:
+		return "When"
+	case parser.IsNullNode:
+		return "IsNull"
+	case parser.IsNotNullNode:
+		return "IsNotNull"
+	case parser.BetweenNode:
+		if node.Not {
+			return "Between (NOT)"
+		}
+		return "Between"
+	case parser.UnaryOpNode:
+		return fmt.Sprintf("UnaryOp (%s)", node.Token)
+	case parser.BinaryOpNode:
+		return fmt.Sprintf("BinaryOp (%s)", node.Token)
+	case parser.ParenthesizedNode:
+		return "Parenthesized"
+	case parser.LikeNode:
+		if node.Not {
+			return "Like (NOT)"
+		}
+		return "Like"
+	case parser.InNode:
+		if node.Not {
+			return "In (NOT)"
+		}
+		return "In"
+	case parser.CoalesceNode:
+		return "Coalesce"
+	case parser.NullIfNode:
+		return "NullIf"
+	case parser.FunctionCallNode:
+		return "FunctionCall"
+	case parser.ProcedureNode:
+		return "Procedure"
+	case parser.FunctionNode:
+		return "Function"
+	case parser.CallNode:
+		return "Call"
+	case parser.ReturnNode:
+		return "Return"
+	case parser.ThrowNode:
+		return "Throw"
+	case parser.PropagateNode:
+		return "Propagate"
+	case parser.MoveNode:
+		return "Move"
+	case parser.ContinueNode:
+		return "Continue"
+	case parser.BreakNode:
+		return "Break"
+	case parser.LabelNode:
+		return "Label"
+	case parser.WhileNode:
+		return "While"
+	case parser.ForNode:
+		return "For"
+	case parser.EnvironmentNode:
+		return "Environment"
+	case parser.DatabaseNode:
+		return "Database"
+	case parser.PassthruNode:
+		return "Passthru"
+	case parser.OtherwiseNode:
+		return "Otherwise"
+	case parser.ElseIfNode:
+		return "ElseIf"
+	case parser.ElseNode:
+		return "Else"
+	case parser.ReturnTypeNode:
+		return "ReturnType"
+	default:
+		if node.Token != "" {
+			return string(node.Type) + " (" + node.Token + ")"
+		}
+		return string(node.Type)
+	}
+}
+
+// getNodeValue returns the string value of a node
+func (p *Printer) getNodeValue(node parser.ASTNode) string {
+	switch node.Type {
+	case parser.LiteralNode:
+		if val, ok := node.Value.(string); ok {
+			// Jangan tambahkan quotes untuk MODE (IN, OUT, INOUT)
+			if val == "IN" || val == "OUT" || val == "INOUT" {
+				return val
+			}
+			// Cek apakah string sudah punya quotes
+			if strings.HasPrefix(val, "'") && strings.HasSuffix(val, "'") {
+				return val
+			}
+			return "'" + val + "'"
+		}
+		if num, ok := node.Value.(float64); ok {
+			// Format number tanpa desimal jika integer
+			if num == float64(int(num)) {
+				return fmt.Sprintf("%d", int(num))
+			}
+			return fmt.Sprintf("%v", num)
+		}
+		return node.Token
+
+	case parser.IdentifierNode:
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
+		}
+		return node.Token
+
+	case parser.FieldReferenceNode:
+		if val, ok := node.Value.(string); ok {
+			return val
+		}
+		// Build from children
+		var parts []string
+		for _, child := range node.Children {
+			parts = append(parts, p.getNodeValue(child))
+		}
+		return strings.Join(parts, ".")
+
+	case parser.FunctionCallNode:
+		if val, ok := node.Value.(string); ok {
+			return val
+		}
+		if len(node.Children) > 0 {
+			return p.getNodeValue(node.Children[0])
+		}
+		return node.Token
+
+	case parser.BinaryOpNode, parser.ComparisonNode:
+		if len(node.Children) >= 2 {
+			left := p.getNodeValue(node.Children[0])
+			right := p.getNodeValue(node.Children[1])
+			return left + " " + node.Token + " " + right
+		}
+		return node.Token
+
+	case parser.CastNode:
+		if len(node.Children) >= 2 {
+			expr := p.getNodeValue(node.Children[0])
+			typ := p.getNodeValue(node.Children[1])
+			return "CAST(" + expr + " AS " + typ + ")"
+		}
+		return "CAST"
+
+	case parser.CaseNode:
+		return "CASE"
+
+	case parser.WhenNode:
+		return "WHEN"
+
+	case parser.IsNullNode:
+		return "IS NULL"
+
+	case parser.IsNotNullNode:
+		return "IS NOT NULL"
+
+	case parser.BetweenNode:
+		if len(node.Children) >= 3 {
+			expr := p.getNodeValue(node.Children[0])
+			lower := p.getNodeValue(node.Children[1])
+			upper := p.getNodeValue(node.Children[2])
+			if node.Not {
+				return expr + " NOT BETWEEN " + lower + " AND " + upper
+			}
+			return expr + " BETWEEN " + lower + " AND " + upper
+		}
+		return "BETWEEN"
+
+	case parser.LikeNode:
+		if len(node.Children) >= 2 {
+			expr := p.getNodeValue(node.Children[0])
+			pattern := p.getNodeValue(node.Children[1])
+			if node.Not {
+				return expr + " NOT LIKE " + pattern
+			}
+			return expr + " LIKE " + pattern
+		}
+		return "LIKE"
+
+	case parser.InNode:
+		if len(node.Children) >= 2 {
+			expr := p.getNodeValue(node.Children[0])
+			var values []string
+			for i := 1; i < len(node.Children); i++ {
+				values = append(values, p.getNodeValue(node.Children[i]))
+			}
+			if node.Not {
+				return expr + " NOT IN (" + strings.Join(values, ", ") + ")"
+			}
+			return expr + " IN (" + strings.Join(values, ", ") + ")"
+		}
+		return "IN"
+
+	case parser.CoalesceNode:
+		var args []string
+		for _, child := range node.Children {
+			args = append(args, p.getNodeValue(child))
+		}
+		return "COALESCE(" + strings.Join(args, ", ") + ")"
+
+	case parser.NullIfNode:
+		if len(node.Children) >= 2 {
+			arg1 := p.getNodeValue(node.Children[0])
+			arg2 := p.getNodeValue(node.Children[1])
+			return "NULLIF(" + arg1 + ", " + arg2 + ")"
+		}
+		return "NULLIF()"
+
+	case parser.ReturnTypeNode:
+		if val, ok := node.Value.(string); ok && val != "" {
+			return val
+		}
+		return node.Token
+
+	default:
+		if node.Value != nil {
+			if str, ok := node.Value.(string); ok && str != "" {
+				return str
+			}
+		}
+		if node.Token != "" {
+			return node.Token
+		}
+		if len(node.Children) > 0 {
+			return p.getNodeValue(node.Children[0])
+		}
+		return "?"
+	}
 }
 
 func programSpan(program parser.Program) string {
@@ -5169,6 +7044,31 @@ func programSpan(program parser.Program) string {
 	start := program.Statements[0].Span.Start
 	end := program.Statements[len(program.Statements)-1].Span.End
 	return fmt.Sprintf("[%d:%d - %d:%d]", start.Line, start.Column, end.Line, end.Column)
+}
+
+func (p *Printer) getFunctionCallString(node parser.ASTNode) string {
+	if node.Type != parser.FunctionCallNode {
+		return p.getNodeValue(node)
+	}
+
+	funcName := p.getNodeValue(node)
+	var args []string
+	// Skip the first child (function name identifier)
+	for i, child := range node.Children {
+		if i == 0 {
+			continue
+		}
+		if child.Type != "" {
+			val := p.getNodeValue(child)
+			if val != "" && val != "?" {
+				args = append(args, val)
+			}
+		}
+	}
+	if len(args) > 0 {
+		return funcName + "(" + strings.Join(args, ", ") + ")"
+	}
+	return funcName + "()"
 }
 
 ```
@@ -5212,7 +7112,9 @@ func main() {
 		dryRun      = flag.Bool("dry-run", false, "Preview changes without applying")
 		apply       = flag.Bool("apply", false, "Apply refactoring changes to file")
 
-		explain = flag.Bool("explain", false, "Explain the code in natural language")
+		explain    = flag.Bool("explain", false, "Explain the code in natural language")
+		search     = flag.String("search", "", "Search type: procedure, function, variable, call, unused")
+		searchName = flag.String("search-name", "", "Name to search for")
 	)
 	flag.Parse()
 
@@ -5371,9 +7273,54 @@ func main() {
 		}
 	}
 
-	// ============================================
+	// SEARCH
+	if *search != "" {
+		an := analyzer.NewAnalyzer()
+		analysisResult := an.Analyze(program)
+		var searchResult refactor.SearchResult
+
+		switch *search {
+		case "procedure":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for procedure search\n"
+			} else {
+				searchResult = refactor.SearchProcedure(program, *searchName)
+			}
+		case "function":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for function search\n"
+			} else {
+				searchResult = refactor.SearchFunction(program, *searchName)
+			}
+		case "variable":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for variable search\n"
+			} else {
+				searchResult = refactor.SearchVariable(program, *searchName)
+			}
+		case "call":
+			if *searchName == "" {
+				result += "\n❌ Please provide -search-name for call search\n"
+			} else {
+				searchResult = refactor.SearchCall(program, *searchName)
+			}
+		case "unused":
+			searchResult = refactor.SearchUnused(program, analysisResult)
+		default:
+			result += fmt.Sprintf("\n❌ Unknown search type: %s\n", *search)
+			result += "Available search types:\n"
+			result += "  procedure   - Search for procedure\n"
+			result += "  function    - Search for function\n"
+			result += "  variable    - Search for variable\n"
+			result += "  call        - Search for CALL statements\n"
+			result += "  unused      - Find all unused code\n"
+		}
+
+		if searchResult.TotalCount > 0 || searchResult.Message != "" {
+			result += refactor.FormatSearchResult(searchResult)
+		}
+	}
 	// REFACTORING
-	// ============================================
 	if *refactorCmd != "" {
 		an := analyzer.NewAnalyzer()
 		analysisResult := an.Analyze(program)
@@ -5562,9 +7509,14 @@ const (
 	NOTNULL     = "NOTNULL"
 	BETWEEN     = "BETWEEN"
 	LIKE        = "LIKE"
-	IN          = "IN"
 	COALESCE    = "COALESCE"
 	NULLIF      = "NULLIF"
+	IN          = "IN"
+	OUT         = "OUT"
+	INOUT       = "INOUT"
+	TERMINAL    = "TERMINAL"
+	DELETE      = "DELETE"
+	NONE        = "NONE"
 )
 
 type Token struct {
@@ -5620,8 +7572,13 @@ func LookupIdent(ident string) string {
 		"BETWEEN":     BETWEEN,
 		"LIKE":        LIKE,
 		"IN":          IN,
+		"OUT":         OUT,
+		"INOUT":       INOUT,
 		"COALESCE":    COALESCE,
 		"NULLIF":      NULLIF,
+		"TERMINAL":    TERMINAL,
+		"DELETE":      DELETE,
+		"NONE":        NONE,
 	}
 	if tok, ok := keywords[ident]; ok {
 		return tok

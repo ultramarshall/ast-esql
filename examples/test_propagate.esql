@@ -1,0 +1,18 @@
+CREATE COMPUTE MODULE TestPropagate
+    DECLARE status STRING;
+    DECLARE result INTEGER;
+    
+    -- Basic PROPAGATE
+    PROPAGATE status;
+    
+    -- PROPAGATE with expression
+    PROPAGATE result + 10;
+    
+    -- PROPAGATE in IF
+    IF status IS NOT NULL THEN
+        PROPAGATE status;
+    END IF;
+    
+    -- PROPAGATE with multiple expressions
+    PROPAGATE status, result;
+END MODULE;

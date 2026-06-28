@@ -384,13 +384,30 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 
 	case parser.FunctionNode:
 		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
-			if name, ok := node.Children[0].Value.(string); ok {
+			if name, ok := node.Children[0].Value.(string); ok && name != "" {
+				returnType := "UNKNOWN"
+				// Cari ReturnTypeNode di children
+				for _, child := range node.Children {
+					if child.Type == parser.ReturnTypeNode {
+						if val, ok := child.Value.(string); ok && val != "" {
+							returnType = val
+						} else if child.Token != "" {
+							returnType = child.Token
+						} else if len(child.Children) > 0 {
+							if val, ok := child.Children[0].Value.(string); ok && val != "" {
+								returnType = val
+							} else if child.Children[0].Token != "" {
+								returnType = child.Children[0].Token
+							}
+						}
+					}
+				}
 				a.functions[name] = FunctionInfo{
 					Parameters: []string{},
-					ReturnType: "UNKNOWN",
+					ReturnType: returnType,
 					Line:       node.Span.Start.Line,
 				}
-				a.moduleFunctions[name] = true // ← Pakai map
+				a.moduleFunctions[name] = true
 				a.currentScope = name
 			}
 		}
@@ -420,14 +437,23 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 		a.currentScope = ""
 
 	case parser.CallNode:
+		var callee string
 		if len(node.Children) > 0 && node.Children[0].Type == parser.IdentifierNode {
-			if callee, ok := node.Children[0].Value.(string); ok {
-				caller := a.currentScope
-				if caller != "" {
-					a.callGraph[caller] = appendUnique(a.callGraph[caller], callee)
-					a.reverseCallGraph[callee] = appendUnique(a.reverseCallGraph[callee], caller)
-				}
+			if val, ok := node.Children[0].Value.(string); ok && val != "" {
+				callee = val
 			}
+			if callee == "" && node.Children[0].Token != "" {
+				callee = node.Children[0].Token
+			}
+		}
+		if callee != "" {
+			// ✅ HANYA jika currentScope tidak kosong
+			if a.currentScope != "" {
+				a.callGraph[a.currentScope] = appendUnique(a.callGraph[a.currentScope], callee)
+				a.reverseCallGraph[callee] = appendUnique(a.reverseCallGraph[callee], a.currentScope)
+			}
+			// ❌ JANGAN tambahkan ke MAIN secara otomatis
+			// Hanya CALL di root yang boleh masuk MAIN
 		}
 		for _, child := range node.Children {
 			a.analyzeNode(child)
@@ -461,19 +487,33 @@ func (a *Analyzer) analyzeNode(node parser.ASTNode) {
 		}
 
 	case parser.FunctionCallNode:
-		if name, ok := node.Value.(string); ok {
-			if _, exists := a.functions[name]; !exists {
-				a.functions[name] = FunctionInfo{
+		var funcName string
+		if val, ok := node.Value.(string); ok && val != "" {
+			funcName = val
+		}
+		if funcName == "" && len(node.Children) > 0 {
+			if node.Children[0].Type == parser.IdentifierNode {
+				if val, ok := node.Children[0].Value.(string); ok && val != "" {
+					funcName = val
+				} else if node.Children[0].Token != "" {
+					funcName = node.Children[0].Token
+				}
+			}
+		}
+		if funcName != "" {
+			if _, exists := a.functions[funcName]; !exists {
+				a.functions[funcName] = FunctionInfo{
 					Parameters: []string{},
 					ReturnType: "BUILTIN",
 					Line:       node.Span.Start.Line,
 				}
 			}
-			caller := a.currentScope
-			if caller != "" {
-				a.callGraph[caller] = appendUnique(a.callGraph[caller], name)
-				a.reverseCallGraph[name] = appendUnique(a.reverseCallGraph[name], caller)
+			// ✅ HANYA jika currentScope tidak kosong
+			if a.currentScope != "" {
+				a.callGraph[a.currentScope] = appendUnique(a.callGraph[a.currentScope], funcName)
+				a.reverseCallGraph[funcName] = appendUnique(a.reverseCallGraph[funcName], a.currentScope)
 			}
+			// ❌ JANGAN tambahkan ke MAIN secara otomatis
 		}
 		for _, child := range node.Children {
 			a.analyzeNode(child)

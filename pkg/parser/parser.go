@@ -20,6 +20,7 @@ type Parser struct {
 	curToken  token.Token
 	peekToken token.Token
 	errors    []string
+	inSet     bool
 }
 
 func NewParser(input string) *Parser {
@@ -99,11 +100,13 @@ func (p *Parser) DebugPrintTokens() {
 // ParseProgram - entry point
 func (p *Parser) ParseProgram() Program {
 	program := NewProgram()
+	rootNode := NewASTNode(ProgramNode, "PROGRAM", 1, 1)
 
 	for p.curToken.Type != token.EOF {
 		stmt := p.parseStatement()
 		if stmt.Type != "" {
-			program.AddStatement(stmt)
+			rootNode.AddChild(stmt)
+			program.AddStatement(stmt) // <-- tambahkan ini
 		}
 
 		if p.curToken.Type == token.SEMICOLON {
@@ -113,5 +116,6 @@ func (p *Parser) ParseProgram() Program {
 		}
 	}
 
+	program.Root = rootNode
 	return program
 }

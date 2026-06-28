@@ -96,7 +96,13 @@ func (p *Parser) parseFunctionCall(name ASTNode) ASTNode {
 	node := NewASTNode(FunctionCallNode, funcName, name.Span.Start.Line, name.Span.Start.Column)
 	node.Value = funcName
 	node.Span.Start = name.Span.Start
-	p.nextToken()
+
+	// ✅ Tambahkan name sebagai child pertama
+	nameNode := NewASTNode(IdentifierNode, funcName, name.Span.Start.Line, name.Span.Start.Column)
+	nameNode.Value = funcName
+	node.AddChild(nameNode)
+
+	p.nextToken() // consume '('
 
 	if p.curToken.Type != token.RPAREN {
 		arg := p.parseExpression()

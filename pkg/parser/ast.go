@@ -55,6 +55,11 @@ const (
 	InNode             NodeType = "In"
 	CoalesceNode       NodeType = "Coalesce"
 	NullIfNode         NodeType = "NullIf"
+	ParameterNode      NodeType = "Parameter"
+	ModeNode           NodeType = "Mode"
+	ParameterNameNode  NodeType = "ParamName"
+	ParameterTypeNode  NodeType = "ParamType"
+	ReturnTypeNode     NodeType = "ReturnType"
 )
 
 // Position represents a position in source code
@@ -76,7 +81,8 @@ type ASTNode struct {
 	Children []ASTNode   `json:"children,omitempty"`
 	Span     Span        `json:"span"`
 	Token    string      `json:"-"`
-	Not      bool        `json:"not,omitempty"` // Untuk NOT BETWEEN
+	Not      bool        `json:"not,omitempty"`
+	Target   string      `json:"target,omitempty"`
 }
 
 // NewASTNode creates a new AST node with start position
@@ -113,27 +119,28 @@ func (n *ASTNode) SetEnd(line, column int) {
 }
 
 // ToJSON returns JSON representation of the node
-func (n ASTNode) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(n, "", "  ")
+func (p Program) ToJSON() ([]byte, error) {
+	if p.Root.Type != "" {
+		return json.MarshalIndent(p.Root, "", "  ")
+	}
+	return json.MarshalIndent(p.Statements, "", "  ")
 }
 
 // Program represents a complete program
 type Program struct {
 	Statements []ASTNode `json:"statements"`
+	Root       ASTNode   `json:"root,omitempty"`
 }
 
 func NewProgram() Program {
 	return Program{
 		Statements: []ASTNode{},
+		Root:       ASTNode{},
 	}
 }
 
 func (p *Program) AddStatement(stmt ASTNode) {
 	p.Statements = append(p.Statements, stmt)
-}
-
-func (p Program) ToJSON() ([]byte, error) {
-	return json.MarshalIndent(p, "", "  ")
 }
 
 // String returns a string representation of Position

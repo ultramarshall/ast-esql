@@ -48,6 +48,11 @@ func (p *Parser) parseExpression() ASTNode {
 
 	left := p.parseLogicalOr()
 
+	if p.inSet {
+		debugPrint("  [parseExpression] inSet=true, skipping '=' comparison\n")
+		return left
+	}
+
 	if p.curToken.Type == token.EQ || p.curToken.Type == token.ASSIGN ||
 		p.curToken.Type == token.NOT_EQ ||
 		p.curToken.Type == token.LT || p.curToken.Type == token.GT ||
